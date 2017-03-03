@@ -457,6 +457,7 @@ void imageCallback(const sensor_msgs::ImageConstPtr& msg){
 	catch(cv_bridge::Exception& e){
 		ROS_ERROR("Could not convert from '%s' to 'bgr8'.", msg->encoding.c_str());
 	}
+	
 }
 
 // OPENGL CALLBACK
@@ -706,7 +707,7 @@ int main (int argc, char** argv){
 	focal_length = camera_matrix.at<double>(0,0);
 	//~ focal_length = 1500;
 	
-	// LOAD CALIBRATION MATRIX FROM CONFIG FILE
+	//~ // LOAD CALIBRATION MATRIX FROM CONFIG FILE
 	//~ loadCalibrationMatrix("kinect");
 	//~ focal_length = camera_matrix.at<double>(0,0);
 	
