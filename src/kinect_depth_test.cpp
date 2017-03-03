@@ -2,6 +2,7 @@
 #include <ros/ros.h>
 #include <ros/package.h>
 #include <ros/service.h>
+#include <ros/callback_queue.h>
 #include <yaml-cpp/yaml.h>
 
 // POSE ESTIMATION
@@ -70,11 +71,8 @@ cv::Mat dist_coeffs;
 float focal_length;
 
 // For Software control
-int count;
 int input_value_ = 0;
 bool debug_;
-//~ bool updateCloud = false;
-//~ bool retrieve_cloud_ = false;
 bool stop_all_ = false;
 
 class DataManagement
@@ -238,30 +236,16 @@ void loadCalibrationMatrix(std::string camera_name_){
 
 void cloud_callback(const sensor_msgs::PointCloud2& cloud_msg){
   // Convert from msg to pcl 
-  std::cout << "Cloud Callback Received" << std::endl;
   pcl::PCLPointCloud2 pcl_pc;
   pcl_conversions::toPCL(cloud_msg,pcl_pc);
   pcl::PointCloud<PointType>::Ptr scene_cloud(new pcl::PointCloud<PointType>);
   pcl::fromPCLPointCloud2(pcl_pc,*scene_cloud);
+  std::cout << "Cloud size: " << scene_cloud->points.size() << std::endl;
   dm.loadCloud(scene_cloud);
-  //~ pcl::fromPCLPointCloud2(pcl_pc,*cloud_a);
-  
-  // Update viewer
-  //~ if (updateCloud){
-    //~ viewer.updatePointCloud(scene_cloud, "cloud_1");
-    //~ viewer.updatePointCloud(cloud_a, "cloud a");
-    //~ loadCloud
-    //~ std::cout << "Frame: " << count << std::endl;
-    //~ count++;
-  //~ }
-  //~ else{
-    //~ viewer.addPointCloud (cloud_a,"cloud a");
-    //~ updateCloud = true;
-  //~ }
-  //~ retrieve_cloud_ = true;
 }
 
 void image_callback(const sensor_msgs::ImageConstPtr& msg){
+	std::cout << "Image callback" << std::endl;
 	
 	try{
 		cv::Mat image;
@@ -271,7 +255,6 @@ void image_callback(const sensor_msgs::ImageConstPtr& msg){
 		bool marker_found;
 		image = cv_bridge::toCvShare(msg, "bgr8")->image;
 		cv::undistort(image, unDistort, camera_matrix, dist_coeffs);
-		std::cout << "Image callback" << std::endl;
 		std::cout << "Camera image size: " << unDistort.size() << std::endl;
 	}
 	catch(cv_bridge::Exception& e){
@@ -285,9 +268,13 @@ void *start_viewer(void *threadid){
   long tid;
   tid = (long)threadid;
   std::cout << std::endl << "Starting Point Cloud Viewer, Thread ID : " << tid << std::endl;
+  
+  // VIEWER PARAMETERS
   pcl::PointCloud<PointType>::Ptr cloud_a;
   bool update_ = false;
   bool retrieve_cloud_ = false;
+  
+  // VIEWER LOOP
   while (!viewer.wasStopped ()){
     retrieve_cloud_ = dm.getCloud(cloud_a);
     if (retrieve_cloud_){
@@ -297,10 +284,11 @@ void *start_viewer(void *threadid){
 				update_ = true;
 			}
 			else{
-				std::cout << "Updated cloud on viewer" << std::endl;
 				viewer.updatePointCloud(cloud_a, "cloud_a");
 			}
 		}
+
+		// FROM KEYBOARD INPUT
     if (input_value_ == 1){
       viewer.close();
     }
@@ -318,32 +306,25 @@ void *start_ros_callback(void *threadid){
   tid = (long)threadid;
   std::cout << std::endl << "Starting ROS Callback Listener, Thread ID : " << tid << std::endl;
   ros::NodeHandle nh_, nh_private_;
-  
+  ros::CallbackQueue cb_queue_;
+	
   // SUBSCRIBE TO POINT CLOUD TOPIC
   std::cout << "Subscribing to Kinect Point Cloud Topic" << std::endl;
   ros::Subscriber point_cloud_sub_;
   point_cloud_sub_ = nh_.subscribe("kinect2/sd/points", 1, cloud_callback);
   
-  // SUBSCRIBE TO 2D IMAGE TOPIC
-  //~ std::cout << "Subscribing to Kinect Image Topic" << std::endl;
-	//~ image_transport::ImageTransport it(nh_);
-  //~ image_transport::Subscriber image_sub_ = it.subscribe("/kinect2/hd/image_color", 1, image_callback);
-	//~ image_sub_.shutdown();
-	
-  // SINGLE CLOUD RETRIEVAL
-  //~ double begin =ros::Time::now().toSec();
-  //~ double current = ros::Time::now().toSec();
-  //~ retrieve_cloud_ = false;
-  //~ while (current-begin<5 && !retrieve_cloud_) {
-    //~ current =ros::Time::now().toSec();
-    //~ ros::spinOnce();
-  //~ }
+  //~ // SUBSCRIBE TO 2D IMAGE TOPIC
+  std::cout << "Subscribing to Kinect Image Topic" << std::endl;
+	image_transport::ImageTransport it(nh_);
+  image_transport::Subscriber image_sub_ = it.subscribe("/kinect2/sd/image_color_rect", 1, image_callback);
   
   // CONTINUOUS RETRIEVAL
   while (!stop_all_){
+		cb_queue_.callAvailable();
 		ros::spinOnce();
 	}
 	
+	image_sub_.shutdown();
 	point_cloud_sub_.shutdown();
   ros::shutdown();
   
@@ -369,7 +350,6 @@ int main (int argc, char** argv){
   
   // VARIABLE INITIALISATION
   package_path_ = ros::package::getPath("ivan_aruco");   
-  count = 0;
   
   // CAMERA CALIBRATION
 	camera_matrix = cv::Mat::eye(3, 3, CV_64F);
