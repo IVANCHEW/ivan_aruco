@@ -688,6 +688,7 @@ void *start_cv_main(void *threadid){
   ros::NodeHandle n;
 	image_transport::ImageTransport it(n);
   image_transport::Subscriber sub = it.subscribe("kinect2/hd/image_color", 1, imageCallback);
+  //~ image_transport::Subscriber sub = it.subscribe("kinect2/sd/image_color_rect", 1, imageCallback);
 
   ros::spin();
 }

@@ -4,7 +4,8 @@ import numpy as np
 class Calibrator:
 	
 	pattern_type = "CHESS_BOARD"
-	calibration_file = "calibration_s4/"
+	#~ calibration_file = "calibration_s4/"
+	calibration_file = "calibration_sd_kinect/"
 	debug = False
 	calibrated = False
 	global mtx
@@ -52,10 +53,10 @@ class Calibrator:
 		objpoints = [] # 3d point in real world space
 		imgpoints = [] # 2d points in image plane.
 
-		for n in range(10):
+		for n in range(20):
 			print "Loading frame %d" % n
-			
-			file_name = self.calibration_file + str(n) + ".jpg"
+			#~ file_name = self.calibration_file + str(n) + ".jpg"
+			file_name = self.calibration_file + str(n) + ".png"
 			frame = cv2.imread(file_name)
 			
 			if frame is None:
@@ -89,7 +90,7 @@ class Calibrator:
 			n=n+1
 
 		#===========================STEP 2: PERFORM CALIBRATION===========================
-		print "Number of successful pattern detection: %d" 5 success
+		print "Number of successful pattern detection: %d" % success
 		
 		if (success > 5):
 			print "Step 2: Begin calibration"

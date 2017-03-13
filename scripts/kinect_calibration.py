@@ -43,7 +43,8 @@ def image_callback(data):
 	
 def listener():
 	rospy.init_node("kinect_calibration", anonymous=True)
-	rospy.Subscriber("kinect2/hd/image_color", Image, image_callback)
+	#~ rospy.Subscriber("kinect2/hd/image_color", Image, image_callback)
+	rospy.Subscriber("kinect2/sd/image_color_rect", Image, image_callback)
 	rospy.spin()
 
 if "__main__" == __name__:
