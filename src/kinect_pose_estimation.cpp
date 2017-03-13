@@ -76,9 +76,8 @@ int target_id = 1;
 // For Software control
 int input_value_ = 0;
 bool debug_;
-bool stop_all_ = false;
-bool next_frame_ = true;
-bool next_cloud_ = true;
+bool got_image_ = false;
+bool got_cloud_ = false;
 
 class DataManagement
 {
@@ -89,6 +88,7 @@ class DataManagement
 		cv::Mat frame;
 		std::vector <int> point_index;
 		std::vector <int> cloud_index;
+		std::vector < std::vector < float > > feature_desc;
 		int index_count = 0;
 		int frame_height, frame_width;
 		bool transformation_ready = false;
@@ -102,6 +102,7 @@ class DataManagement
 	public:
 	
 		void setParameters(double h, double w);
+		void setPixelPointReady();
 	
 		void loadTransform(cv::Mat t, cv::Mat r);
 		void loadFrame(cv::Mat f);
@@ -114,6 +115,11 @@ class DataManagement
 		bool getPixelPoint(cv::Point2f &p);
 		bool getPointCloudIndex(int &index, int n);
 		bool getPointIndexSize(int &n);
+		
+		void computeDescriptors();
+		
+		void arrangeDescriptors();
+		
 		void clearPixelPoints();
 		
 		bool statusTransform();
@@ -126,6 +132,10 @@ void DataManagement::setParameters(double h, double w){
 	std::cout << std::endl << "Parameters set. W = " << frame_width << " H = " << frame_height << std::endl;
 	
 	parameters_ready = true;
+}
+
+void DataManagement::setPixelPointReady(){
+		pixel_point_ready = true;
 }
 
 void DataManagement::loadTransform(cv::Mat t, cv::Mat r){
@@ -181,6 +191,7 @@ bool DataManagement::getCloud(pcl::PointCloud<PointType>::Ptr &r){
 	}
 }
 
+// Not used
 bool DataManagement::getPixelPoint(cv::Point2f &p){
 	if (pixel_point_ready){
 		//~ p = pixel_point;
@@ -195,6 +206,7 @@ bool DataManagement::getPixelPoint(cv::Point2f &p){
 bool DataManagement::getPointCloudIndex(int &index, int n){
 	if (parameters_ready && pixel_point_ready){
 		index = cloud_index[n];
+		std::cout << "Point cloud index returned: " << index << std::endl;
 		return true;
 	}
 	else{
@@ -204,6 +216,7 @@ bool DataManagement::getPointCloudIndex(int &index, int n){
 
 bool DataManagement::getPointIndexSize(int &n){
 		n = point_index.size();
+		std::cout << "Point index size returned: " << n << std::endl;
 		if (n>0){
 			return true;
 		}
@@ -212,9 +225,74 @@ bool DataManagement::getPointIndexSize(int &n){
 		}
 }
 
+void DataManagement::computeDescriptors(){
+	if(pixel_point_ready && cloud_ready){
+		int n = point_index.size();
+		std::cout << "Computing descriptor, n: " << n << std::endl;
+		for (int i = 0 ; i < n ; i++){
+			std::vector<float> temp_desc;
+			for (int j = 0 ; j < n ; j++){
+				if(i!=j){
+					float delta_x = cloud->points[cloud_index[i]].x - cloud->points[cloud_index[j]].x;
+					float delta_y = cloud->points[cloud_index[i]].y - cloud->points[cloud_index[j]].y;
+					float delta_z = cloud->points[cloud_index[i]].z - cloud->points[cloud_index[j]].z;
+					float s = sqrt(pow(delta_x,2) + pow(delta_y,2) + pow(delta_z,2));
+					temp_desc.push_back(s);
+				}
+			}
+			feature_desc.push_back(temp_desc);
+			std::cout << " Descriptor " << i << " : ";
+			for (int j = 0 ; j < temp_desc.size() ; j++){
+				std::cout << temp_desc[j] << ", ";
+			}
+			std::cout << std::endl;
+		}
+		std::cout << "Finished computing descriptors... " << std::endl;
+	}
+	else if(!pixel_point_ready){
+		std::cout << "Pixel points not ready, cannot compute descriptor" << std::endl;
+	}
+	else if(!cloud_ready){
+		std::cout << "Point cloud not ready, cannot compute descriptor" << std::endl;
+	}
+}
+
+void DataManagement::arrangeDescriptors(){
+	std::vector <float> sorted_index;
+	int n = 0;
+	bool lowest_score = true;
+	int front_of_index;
+	sorted_index.push_back(feature_desc[n][0]);
+	
+  for (int i=1; i<feature_desc[n].size(); i++){    
+    lowest_score = true;  
+    for (int  j=0 ; j < sorted_index.size() ; j++){   
+      if(feature_desc[n][i] <= sorted_index[j]){
+        front_of_index = j;
+        lowest_score = false;
+        break;
+      }       
+    }
+    
+    if (lowest_score==false){
+      sorted_index.insert(sorted_index.begin() + front_of_index, feature_desc[n][i]);        
+    }
+    else if(lowest_score==true){
+      sorted_index.push_back(feature_desc[n][i]);
+    }
+  }
+  
+  std::cout << "Descriptor " << n << " content sorted: ";
+  for (int i = 0 ; i < sorted_index.size() ; i++){
+		std::cout << sorted_index[i] << ", " << std::endl;
+	}
+}
+
 void DataManagement::clearPixelPoints(){
 	std::vector <int> ().swap(point_index);
 	std::vector <int> ().swap(cloud_index);
+	index_count = 0;
+	pixel_point_ready = false;
 }
 
 bool DataManagement::statusTransform(){
@@ -223,32 +301,7 @@ bool DataManagement::statusTransform(){
 
 DataManagement dm;
 
-// POINT CLOUD MANIPULATION FUNCTIONS
-void transformPC(pcl::PointCloud<PointType>::Ptr& source_cloud, float x, float y, float z, float deg, char axis){
-  Eigen::Affine3f transform_2 = Eigen::Affine3f::Identity();
-  // Linear Transformation
-  transform_2.translation() << x, y, z;
-  //Angular Transformation
-  switch(axis){
-    case 'x' :
-      transform_2.rotate (Eigen::AngleAxisf (deg, Eigen::Vector3f::UnitX()));
-      break;
-    case 'y' :
-      transform_2.rotate (Eigen::AngleAxisf (deg, Eigen::Vector3f::UnitY()));
-      break;
-    case 'z' :
-      transform_2.rotate (Eigen::AngleAxisf (deg, Eigen::Vector3f::UnitZ()));
-      break;
-
-    default :
-      cout << "Invalid axis" << endl;
-  }
-  pcl::transformPointCloud (*source_cloud, *source_cloud, transform_2);
-}
-
-// 2D IMAGE MANIPULATION FUNCTIONS
-
-// Single Marker Detection function
+// ARUCO Marker Detection function
 bool arucoPoseEstimation(cv::Mat& input_image, int id, cv::Mat& tvec, cv::Mat& rvec, cv::Mat& mtx, cv::Mat& dist, bool draw_axis){
 	// Contextual Parameters
 	//~ std::cout << "Pose estimation called" << std::endl;
@@ -261,9 +314,10 @@ bool arucoPoseEstimation(cv::Mat& input_image, int id, cv::Mat& tvec, cv::Mat& r
 	cv::cvtColor(input_image, gray, cv::COLOR_BGR2GRAY);
 	cv::aruco::detectMarkers(gray, dictionary, marker_corners, marker_ids);	
 	dm.clearPixelPoints();
+	
 	if (marker_ids.size() > 0){
 		for (int i = 0 ; i < marker_ids.size() ; i++){
-			//~ std::cout << "Marker IDs found: " << marker_ids[i] << std::endl;
+			std::cout << "Marker IDs found: " << marker_ids[i] << std::endl;
 			
 			std::vector< std::vector<cv::Point2f> > single_corner(1);
 			single_corner[0] = marker_corners[i];
@@ -275,8 +329,8 @@ bool arucoPoseEstimation(cv::Mat& input_image, int id, cv::Mat& tvec, cv::Mat& r
 				cv::aruco::drawDetectedMarkers(input_image, marker_corners, marker_ids);
 				cv::aruco::drawAxis(input_image, mtx, dist, rvec, tvec, aruco_square_size/2);
 			}
-			//~ std::cout << "Marker found : aruco pose estimation" << std::endl;
 		}
+		dm.setPixelPointReady();
 		marker_found = true;
 	}
 	else{
@@ -355,162 +409,39 @@ void loadCalibrationMatrix(std::string camera_name_){
 // Retrieve msg from /kinect2/sd/points and converts to PointType variable
 // before loading it into the Data Manager.
 void cloud_callback(const sensor_msgs::PointCloud2& cloud_msg){
+	got_cloud_ = true;
   // Convert from msg to pcl 
-  if (next_frame_){
-		pcl::PCLPointCloud2 pcl_pc;
-		pcl_conversions::toPCL(cloud_msg,pcl_pc);
-		pcl::PointCloud<PointType>::Ptr scene_cloud(new pcl::PointCloud<PointType>);
-		pcl::fromPCLPointCloud2(pcl_pc,*scene_cloud);
-		//~ std::cout << "Cloud size: " << scene_cloud->points.size() << std::endl;
-		dm.loadCloud(scene_cloud);
-	}
+	pcl::PCLPointCloud2 pcl_pc;
+	pcl_conversions::toPCL(cloud_msg,pcl_pc);
+	pcl::PointCloud<PointType>::Ptr scene_cloud(new pcl::PointCloud<PointType>);
+	pcl::fromPCLPointCloud2(pcl_pc,*scene_cloud);
+	std::cout << "Cloud size: " << scene_cloud->points.size() << std::endl;
+	dm.loadCloud(scene_cloud);
 }
 
 // Retrieves msg from /kinect2/sd/image_color_rect, converts to image, detects markers
 // and undistorts the image before loading the image, rvec and tvec into the Data Manager.
 void image_callback(const sensor_msgs::ImageConstPtr& msg){
 	std::cout << "Image callback" << std::endl;
-	
-	if(next_frame_){
-		next_cloud_ = false;
-		try{
-			cv::Mat image;
-			cv::Mat unDistort;
-			cv::Mat rvec;
-			cv::Mat tvec;
-			bool marker_found;
-			image = cv_bridge::toCvShare(msg, "bgr8")->image;
-			
-			marker_found = false;
-			marker_found = arucoPoseEstimation(image, target_id, tvec, rvec, camera_matrix, dist_coeffs, true);
-			
-			cv::undistort(image, unDistort, camera_matrix, dist_coeffs);
-			//~ std::cout << "Image Size: " << unDistort.size() << std::endl;
-			dm.loadFrame(unDistort);
-		}
-		catch(cv_bridge::Exception& e){
-			ROS_ERROR("Could not convert from '%s' to 'bgr8'.", msg->encoding.c_str());
-		}
+	got_image_ = true;
+	try{
+		cv::Mat image;
+		cv::Mat unDistort;
+		cv::Mat rvec;
+		cv::Mat tvec;
+		bool marker_found;
+		image = cv_bridge::toCvShare(msg, "bgr8")->image;
+		
+		marker_found = false;
+		marker_found = arucoPoseEstimation(image, target_id, tvec, rvec, camera_matrix, dist_coeffs, true);
+		
+		cv::undistort(image, unDistort, camera_matrix, dist_coeffs);
+		std::cout << "Image Size: " << unDistort.size() << std::endl;
+		dm.loadFrame(unDistort);
 	}
-}
-
-// THREAD FUNCTIONS
-
-// Thread to load point clouds into the PCL visualiser
-void *start_cloud_viewer(void *threadid){
-  long tid;
-  tid = (long)threadid;
-  std::cout << std::endl << "Starting Point Cloud Viewer, Thread ID : " << tid << std::endl;
-  
-  // VIEWER PARAMETERS
-  pcl::PointCloud<PointType>::Ptr cloud_a;
-  pcl::PointCloud<PointType>::Ptr	highlight_cloud (new pcl::PointCloud<PointType>);
-  pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler (highlight_cloud, 0, 255, 0);
-  
-  bool update_ = false;
-  bool retrieve_cloud_ = false;
-  
-  // CLOUD ASSOCIATION TEST
-  bool retrieve_index_ = false;
-  int cloud_index;
-  int highlight_size_;
-  // VIEWER LOOP
-  while (!viewer.wasStopped ()){
-    retrieve_cloud_ = dm.getCloud(cloud_a);
-        
-    if (retrieve_cloud_){
-			if (!update_){
-				std::cout << "Added new cloud to viewer" << std::endl;
-				viewer.addPointCloud(cloud_a, "cloud_a");
-				highlight_cloud->points.push_back(cloud_a->points[0]);
-				viewer.addPointCloud (highlight_cloud, highlight_color_handler, "Highlight Cloud");
-				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "Highlight Cloud");
-				update_ = true;
-			}
-			else{
-				viewer.updatePointCloud(cloud_a, "cloud_a");
-				retrieve_index_ = dm.getPointIndexSize(highlight_size_);
-				if (retrieve_index_){
-					//Display distinguished key point
-					highlight_cloud->points.clear();
-					for (int n=0 ; n < highlight_size_ ; n++){
-						dm.getPointCloudIndex(cloud_index, n);
-						highlight_cloud->points.push_back(cloud_a->points[cloud_index]);
-					}
-					viewer.updatePointCloud(highlight_cloud, highlight_color_handler, "Highlight Cloud");
-				}
-			}
-		}
-
-		// FROM KEYBOARD INPUT
-    if (input_value_ == 1){
-      viewer.close();
-    }
-    input_value_ == 0;
-    viewer.spinOnce();
-    boost::this_thread::sleep (boost::posix_time::microseconds (100)); 
-    next_frame_ = true;
-  }
-  stop_all_ = true;
-  std::cout << "Exiting Viewer thread" << std::endl;
-  pthread_exit(NULL);
-}
-
-// Thread to load Mat into the openCV viewer
-void *start_image_viewer(void *threadid){
-	long tid;
-  tid = (long)threadid;
-  std::cout << std::endl << "Starting Image Viewer, Thread ID : " << tid << std::endl;
-  
-  // VIEWER PARAMETER
-  cv::Mat image_display_;
-  bool retrieve_image_ = false;
-  
-  // VIEWER LOOP
-  while (!stop_all_){
-		retrieve_image_ = dm.getFrame(image_display_);
-		if(retrieve_image_){
-			cv::imshow("Image Viewer", image_display_);
-			if(cv::waitKey(30) >= 0) std::cout << "Key out" << std::endl;
-		}
-		retrieve_image_ = false;
+	catch(cv_bridge::Exception& e){
+		ROS_ERROR("Could not convert from '%s' to 'bgr8'.", msg->encoding.c_str());
 	}
-	
-	std::cout << "Exiting Image Viewer Thread" << std::endl;
-	pthread_exit(NULL);
-}
-
-// Thread to retrieve ROS messages from topics subscribed
-void *start_ros_callback(void *threadid){
-  long tid;
-  tid = (long)threadid;
-  std::cout << std::endl << "Starting ROS Callback Listener, Thread ID : " << tid << std::endl;
-  ros::NodeHandle nh_, nh_private_;
-  ros::CallbackQueue cb_queue_;
-	
-  // SUBSCRIBE TO POINT CLOUD TOPIC
-  std::cout << "Subscribing to Kinect Point Cloud Topic" << std::endl;
-  ros::Subscriber point_cloud_sub_;
-  point_cloud_sub_ = nh_.subscribe("kinect2/sd/points", 1, cloud_callback);
-  
-  //~ // SUBSCRIBE TO 2D IMAGE TOPIC
-  std::cout << "Subscribing to Kinect Image Topic" << std::endl;
-	image_transport::ImageTransport it(nh_);
-  image_transport::Subscriber image_sub_ = it.subscribe("/kinect2/sd/image_color_rect", 1, image_callback);
-  //~ image_transport::Subscriber image_sub_ = it.subscribe("/kinect2/hd/image_color", 1, image_callback);
-  // CONTINUOUS RETRIEVAL
-  while (!stop_all_){
-		cb_queue_.callAvailable();
-		ros::spinOnce();
-	}
-	
-	image_sub_.shutdown();
-	point_cloud_sub_.shutdown();
-  ros::shutdown();
-  
-  //~ std::cout << "Size of point cloud: " << cloud_a->points.size() << std::endl;
-  std::cout << "Exiting ROS callback thread" << std::endl;
-  pthread_exit(NULL);
 }
 
 // PCL VIEWER KEYBOARD CALL BACK
@@ -526,15 +457,18 @@ void keyboardEventOccurred (const pcl::visualization::KeyboardEvent &event, void
 
 int main (int argc, char** argv){
   std::cout << std::endl << "Kinect Depth Test Package" << std::endl;
-  ros::init(argc, argv, "kinect_depth_test");
+  ros::init(argc, argv, "kinect_pose_estimation");
   
   // VARIABLE INITIALISATION
   package_path_ = ros::package::getPath("ivan_aruco");   
+  std::string camera_name = "kinect_sd";
+  std::string point_cloud_topic_name = "/kinect2/sd/points";
+  std::string image_topic_name = "/kinect2/sd/image_color_rect";
   
   // CAMERA CALIBRATION
 	camera_matrix = cv::Mat::eye(3, 3, CV_64F);
 	dist_coeffs = cv::Mat::zeros(8, 1, CV_64F);
-  loadCalibrationMatrix("kinect_sd");
+  loadCalibrationMatrix("camera_name");
 	focal_length = camera_matrix.at<double>(0,0);
 	dm.setParameters(2*camera_matrix.at<double>(1,2), 2*camera_matrix.at<double>(0,2));
 	
@@ -555,52 +489,63 @@ int main (int argc, char** argv){
 	}
 	std::cout << "]" << std::endl;
 	
-  // THREADING
-  pthread_t thread[3];
-  pthread_attr_t attr;
-  pthread_attr_init(&attr);
-  pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-  int thread_error_;
-  int i=0;
-  void *status;
-  
-  // PREPARE VIEWER THREAD
-  viewer.registerKeyboardCallback (keyboardEventOccurred, (void*)&viewer);
-  thread_error_ = pthread_create(&thread[i], NULL, start_cloud_viewer, (void *)i);
-  if (thread_error_){
-    std::cout << "Error:unable to create thread," << thread_error_ << std::endl;
-    exit(-1);
-  }
-
-  // PREPARE ROS CALLBACK
-  i++;
-  thread_error_ = pthread_create(&thread[i], NULL, start_ros_callback, (void *)i);
-  if (thread_error_){
-    std::cout << "Error:unable to create thread," << thread_error_ << std::endl;
-    exit(-1);
-  }
-  
-  //~ // PREPARE IMAGE VIEWER CALLBACK
-  i++;
-  thread_error_ = pthread_create(&thread[i], NULL, start_image_viewer, (void *)i);
-  if (thread_error_){
-    std::cout << "Error:unable to create thread," << thread_error_ << std::endl;
-    exit(-1);
-  }
-  
-  // INITIATE THREADS
-  pthread_attr_destroy(&attr);
-  
-  //initially j < 1
-  for(int j=0; j < 1; j++ ){
-    thread_error_ = pthread_join(thread[i], &status);
-    if (thread_error_){
-      std::cout << "Error:unable to join," << thread_error_ << std::endl;
-      exit(-1);
-    }
-  }
-  
-  std::cout << std::endl << "End of main script" << std::endl;
-  
+	// LOAD SINGLE IMAGE AND POINT CLOUD
+	ros::NodeHandle nh_, nh_private_;
+	std::cout << std::endl << "Subscribing to Kinect Point Cloud Topic..." << std::endl;
+  ros::Subscriber point_cloud_sub_;
+  point_cloud_sub_ = nh_.subscribe(point_cloud_topic_name, 1, cloud_callback);
+  while (!got_cloud_) {
+		ros::spinOnce();
+	}
+	point_cloud_sub_.shutdown();
+	
+	std::cout << std::endl << "Subscribing to Kinect Image Topic..." << std::endl;
+	image_transport::ImageTransport it(nh_);
+  image_transport::Subscriber image_sub_ = it.subscribe(image_topic_name, 1, image_callback);
+	while (!got_image_) {
+		ros::spinOnce();
+	}
+	image_sub_.shutdown();
+	
+	//COMPUTE DESCRIPTORS
+	dm.computeDescriptors();
+	
+	// VIEW DETECTED POINTS ON THE CLOUD VIEWER
+	// VIEWER PARAMETERS
+	std::cout << std::endl << "Starting Point Cloud Viewer..." << std::endl;
+	bool retrieve_cloud_ = false;
+	bool retrieve_index_ = false;
+	int highlight_size_ = 0;
+	int cloud_index;
+  pcl::PointCloud<PointType>::Ptr cloud_a;
+  pcl::PointCloud<PointType>::Ptr	highlight_cloud (new pcl::PointCloud<PointType>);
+  pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler (highlight_cloud, 0, 255, 0);
+  retrieve_cloud_ = dm.getCloud(cloud_a);
+  if (retrieve_cloud_){
+		viewer.addPointCloud(cloud_a, "cloud_a");
+		retrieve_index_ = dm.getPointIndexSize(highlight_size_);
+		std::cout << "Highlight points size: " << highlight_size_ << std::endl;
+		if (retrieve_index_){
+			for (int n=0 ; n < highlight_size_ ; n++){
+				dm.getPointCloudIndex(cloud_index, n);
+				highlight_cloud->points.push_back(cloud_a->points[cloud_index]);
+			}
+			viewer.addPointCloud (highlight_cloud, highlight_color_handler, "Highlight Cloud");
+			viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "Highlight Cloud");
+		}
+	}
+	viewer.spinOnce();
+	
+	// VIEW THE CORRESPONDING IMAGE
+	std::cout << std::endl << "Starting Image Viewer..." << std::endl;
+  cv::Mat image_display_;
+  bool retrieve_image_ = false;
+  retrieve_image_ = dm.getFrame(image_display_);
+  if(retrieve_image_){
+		cv::imshow("Image Viewer", image_display_);
+		if(cv::waitKey(30) >= 0) std::cout << "Key out" << std::endl;
+	}
+	
   return 0;
 }
+

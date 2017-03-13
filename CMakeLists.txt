@@ -40,3 +40,7 @@ add_dependencies(single_frame_overlay_viewer ${catkin_EXPORTED_TARGETS})
 add_executable(kinect_depth_test src/kinect_depth_test.cpp)
 target_link_libraries(kinect_depth_test yaml-cpp ${PCL_LIBRARIES} ${catkin_LIBRARIES})
 add_dependencies(kinect_depth_test ${catkin_EXPORTED_TARGETS})
+
+add_executable(kinect_pose_estimation src/kinect_pose_estimation.cpp)
+target_link_libraries(kinect_pose_estimation yaml-cpp ${PCL_LIBRARIES} ${catkin_LIBRARIES})
+add_dependencies(kinect_pose_estimation ${catkin_EXPORTED_TARGETS})
