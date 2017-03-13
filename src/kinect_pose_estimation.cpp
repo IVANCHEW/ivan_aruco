@@ -78,6 +78,7 @@ int input_value_ = 0;
 bool debug_;
 bool got_image_ = false;
 bool got_cloud_ = false;
+int image_buffer_ = 0;
 
 class DataManagement
 {
@@ -86,9 +87,10 @@ class DataManagement
 		cv::Mat tvec;
 		cv::Mat rvec;
 		cv::Mat frame;
-		std::vector <int> point_index;
+		std::vector <int> point_id;
 		std::vector <int> cloud_index;
 		std::vector < std::vector < float > > feature_desc;
+		std::vector < std::vector < int > > feature_desc_index;
 		int index_count = 0;
 		int frame_height, frame_width;
 		bool transformation_ready = false;
@@ -107,7 +109,7 @@ class DataManagement
 		void loadTransform(cv::Mat t, cv::Mat r);
 		void loadFrame(cv::Mat f);
 		void loadCloud(pcl::PointCloud<PointType>::Ptr &c);
-		void loadPixelPoint(cv::Point2f p);
+		void loadPixelPoint(cv::Point2f p, int id);
 		
 		void getTransform(cv::Mat& t, cv::Mat& r);
 		bool getFrame(cv::Mat& f);
@@ -123,6 +125,8 @@ class DataManagement
 		void clearPixelPoints();
 		
 		bool statusTransform();
+		
+		void printDescriptors();
 };
 
 void DataManagement::setParameters(double h, double w){
@@ -157,10 +161,11 @@ void DataManagement::loadCloud(pcl::PointCloud<PointType>::Ptr &c){
 }
 
 // Also computes corresponding cloud index with the given pixel position
-void DataManagement::loadPixelPoint(cv::Point2f p){
+void DataManagement::loadPixelPoint(cv::Point2f p, int id){
+	std::cout << "Loading pixel point " << index_count << " . x: " << p.x << ", y: " << p.y << std::endl;
 	int index_temp = p.y * frame_width + p.x;
 	cloud_index.push_back(index_temp);
-	point_index.push_back(index_count);
+	point_id.push_back(id);
 	pixel_point_ready = true;
 	index_count++;
 }
@@ -215,7 +220,7 @@ bool DataManagement::getPointCloudIndex(int &index, int n){
 }
 
 bool DataManagement::getPointIndexSize(int &n){
-		n = point_index.size();
+		n = point_id.size();
 		std::cout << "Point index size returned: " << n << std::endl;
 		if (n>0){
 			return true;
@@ -227,10 +232,11 @@ bool DataManagement::getPointIndexSize(int &n){
 
 void DataManagement::computeDescriptors(){
 	if(pixel_point_ready && cloud_ready){
-		int n = point_index.size();
+		int n = point_id.size();
 		std::cout << "Computing descriptor, n: " << n << std::endl;
 		for (int i = 0 ; i < n ; i++){
 			std::vector<float> temp_desc;
+			std::vector<int> temp_index;
 			for (int j = 0 ; j < n ; j++){
 				if(i!=j){
 					float delta_x = cloud->points[cloud_index[i]].x - cloud->points[cloud_index[j]].x;
@@ -238,15 +244,14 @@ void DataManagement::computeDescriptors(){
 					float delta_z = cloud->points[cloud_index[i]].z - cloud->points[cloud_index[j]].z;
 					float s = sqrt(pow(delta_x,2) + pow(delta_y,2) + pow(delta_z,2));
 					temp_desc.push_back(s);
+					temp_index.push_back(point_id[j]);
 				}
 			}
+			feature_desc_index.push_back(temp_index);
 			feature_desc.push_back(temp_desc);
-			std::cout << " Descriptor " << i << " : ";
-			for (int j = 0 ; j < temp_desc.size() ; j++){
-				std::cout << temp_desc[j] << ", ";
-			}
-			std::cout << std::endl;
 		}
+		
+		printDescriptors();
 		std::cout << "Finished computing descriptors... " << std::endl;
 	}
 	else if(!pixel_point_ready){
@@ -258,38 +263,45 @@ void DataManagement::computeDescriptors(){
 }
 
 void DataManagement::arrangeDescriptors(){
-	std::vector <float> sorted_index;
-	int n = 0;
-	bool lowest_score = true;
-	int front_of_index;
-	sorted_index.push_back(feature_desc[n][0]);
 	
-  for (int i=1; i<feature_desc[n].size(); i++){    
-    lowest_score = true;  
-    for (int  j=0 ; j < sorted_index.size() ; j++){   
-      if(feature_desc[n][i] <= sorted_index[j]){
-        front_of_index = j;
-        lowest_score = false;
-        break;
-      }       
-    }
-    
-    if (lowest_score==false){
-      sorted_index.insert(sorted_index.begin() + front_of_index, feature_desc[n][i]);        
-    }
-    else if(lowest_score==true){
-      sorted_index.push_back(feature_desc[n][i]);
-    }
-  }
-  
-  std::cout << "Descriptor " << n << " content sorted: ";
-  for (int i = 0 ; i < sorted_index.size() ; i++){
-		std::cout << sorted_index[i] << ", " << std::endl;
+	std::cout << std::endl << "Sorting descriptors according to magnitude..." << std::endl;
+	for (int n=0; n < feature_desc.size() ; n++){
+		bool lowest_score = true;
+		int front_of_index;
+		std::vector <float> sorted_desc;
+		std::vector <int> sorted_index;
+		sorted_desc.push_back(feature_desc[n][0]);
+		sorted_index.push_back(feature_desc_index[n][0]);
+		
+		for (int i=1; i<feature_desc[n].size(); i++){    
+			lowest_score = true;  
+			for (int  j=0 ; j < sorted_desc.size() ; j++){   
+				if(feature_desc[n][i] <= sorted_desc[j]){
+					front_of_index = j;
+					lowest_score = false;
+					break;
+				}       
+			}
+			if (lowest_score==false){
+				sorted_desc.insert(sorted_desc.begin() + front_of_index, feature_desc[n][i]);     
+				sorted_index.insert(sorted_index.begin() + front_of_index, feature_desc_index[n][i]);           
+			}
+			else if(lowest_score==true){
+				sorted_desc.push_back(feature_desc[n][i]);
+				sorted_index.push_back(feature_desc_index[n][i]);
+			}
+		}
+		
+		feature_desc_index[n].swap(sorted_index);
+		feature_desc[n].swap(sorted_desc);
 	}
+	
+	printDescriptors();
+	std::cout << "Descriptors Sorted..." << std::endl;
 }
 
 void DataManagement::clearPixelPoints(){
-	std::vector <int> ().swap(point_index);
+	std::vector <int> ().swap(point_id);
 	std::vector <int> ().swap(cloud_index);
 	index_count = 0;
 	pixel_point_ready = false;
@@ -299,12 +311,22 @@ bool DataManagement::statusTransform(){
 	return transformation_ready;
 }
 
+void DataManagement::printDescriptors(){
+	for( int i = 0; i < point_id.size() ; i++){
+		std::cout << " Descriptor (" << point_id[i] << ") : ";
+		for (int j = 0 ; j < feature_desc[i].size() ; j++){
+			std::cout << feature_desc[i][j] << "(" << feature_desc_index[i][j] << "), ";
+		}
+		std::cout << std::endl;
+	}
+}
+
 DataManagement dm;
 
 // ARUCO Marker Detection function
 bool arucoPoseEstimation(cv::Mat& input_image, int id, cv::Mat& tvec, cv::Mat& rvec, cv::Mat& mtx, cv::Mat& dist, bool draw_axis){
 	// Contextual Parameters
-	//~ std::cout << "Pose estimation called" << std::endl;
+	std::cout << std::endl << "Pose estimation called..." << std::endl;
 	float aruco_square_size = aruco_size*2;
 	bool marker_found = false;
 	std::vector< int > marker_ids;
@@ -314,15 +336,15 @@ bool arucoPoseEstimation(cv::Mat& input_image, int id, cv::Mat& tvec, cv::Mat& r
 	cv::cvtColor(input_image, gray, cv::COLOR_BGR2GRAY);
 	cv::aruco::detectMarkers(gray, dictionary, marker_corners, marker_ids);	
 	dm.clearPixelPoints();
-	
+	std::cout << "Number of markers detected: " << marker_ids.size() << std::endl;
 	if (marker_ids.size() > 0){
 		for (int i = 0 ; i < marker_ids.size() ; i++){
-			std::cout << "Marker IDs found: " << marker_ids[i] << std::endl;
+			std::cout << "Marker ID found: " << marker_ids[i] << std::endl;
 			
 			std::vector< std::vector<cv::Point2f> > single_corner(1);
 			single_corner[0] = marker_corners[i];
 			
-			dm.loadPixelPoint(marker_corners[i][0]);
+			dm.loadPixelPoint(marker_corners[i][0], marker_ids[i]);
 			
 			cv::aruco::estimatePoseSingleMarkers(single_corner, aruco_square_size, mtx, dist, rvec, tvec);
 			if (draw_axis){
@@ -422,25 +444,30 @@ void cloud_callback(const sensor_msgs::PointCloud2& cloud_msg){
 // Retrieves msg from /kinect2/sd/image_color_rect, converts to image, detects markers
 // and undistorts the image before loading the image, rvec and tvec into the Data Manager.
 void image_callback(const sensor_msgs::ImageConstPtr& msg){
-	std::cout << "Image callback" << std::endl;
-	got_image_ = true;
-	try{
-		cv::Mat image;
-		cv::Mat unDistort;
-		cv::Mat rvec;
-		cv::Mat tvec;
-		bool marker_found;
-		image = cv_bridge::toCvShare(msg, "bgr8")->image;
-		
-		marker_found = false;
-		marker_found = arucoPoseEstimation(image, target_id, tvec, rvec, camera_matrix, dist_coeffs, true);
-		
-		cv::undistort(image, unDistort, camera_matrix, dist_coeffs);
-		std::cout << "Image Size: " << unDistort.size() << std::endl;
-		dm.loadFrame(unDistort);
+	//~ std::cout << "Image callback, buffer: " << image_buffer_ << std::endl;
+	if(image_buffer_>=30){
+		got_image_ = true;
+		try{
+			cv::Mat image;
+			cv::Mat unDistort;
+			cv::Mat rvec;
+			cv::Mat tvec;
+			bool marker_found;
+			image = cv_bridge::toCvShare(msg, "bgr8")->image;
+			
+			marker_found = false;
+			marker_found = arucoPoseEstimation(image, target_id, tvec, rvec, camera_matrix, dist_coeffs, true);
+			
+			cv::undistort(image, unDistort, camera_matrix, dist_coeffs);
+			std::cout << "Image Size: " << unDistort.size() << std::endl;
+			dm.loadFrame(unDistort);
+		}
+		catch(cv_bridge::Exception& e){
+			ROS_ERROR("Could not convert from '%s' to 'bgr8'.", msg->encoding.c_str());
+		}
 	}
-	catch(cv_bridge::Exception& e){
-		ROS_ERROR("Could not convert from '%s' to 'bgr8'.", msg->encoding.c_str());
+	else{
+		image_buffer_++;
 	}
 }
 
@@ -468,8 +495,9 @@ int main (int argc, char** argv){
   // CAMERA CALIBRATION
 	camera_matrix = cv::Mat::eye(3, 3, CV_64F);
 	dist_coeffs = cv::Mat::zeros(8, 1, CV_64F);
-  loadCalibrationMatrix("camera_name");
+  loadCalibrationMatrix(camera_name);
 	focal_length = camera_matrix.at<double>(0,0);
+	
 	dm.setParameters(2*camera_matrix.at<double>(1,2), 2*camera_matrix.at<double>(0,2));
 	
   // DEBUGGING
@@ -491,13 +519,6 @@ int main (int argc, char** argv){
 	
 	// LOAD SINGLE IMAGE AND POINT CLOUD
 	ros::NodeHandle nh_, nh_private_;
-	std::cout << std::endl << "Subscribing to Kinect Point Cloud Topic..." << std::endl;
-  ros::Subscriber point_cloud_sub_;
-  point_cloud_sub_ = nh_.subscribe(point_cloud_topic_name, 1, cloud_callback);
-  while (!got_cloud_) {
-		ros::spinOnce();
-	}
-	point_cloud_sub_.shutdown();
 	
 	std::cout << std::endl << "Subscribing to Kinect Image Topic..." << std::endl;
 	image_transport::ImageTransport it(nh_);
@@ -507,8 +528,17 @@ int main (int argc, char** argv){
 	}
 	image_sub_.shutdown();
 	
+	std::cout << std::endl << "Subscribing to Kinect Point Cloud Topic..." << std::endl;
+  ros::Subscriber point_cloud_sub_;
+  point_cloud_sub_ = nh_.subscribe(point_cloud_topic_name, 1, cloud_callback);
+  while (!got_cloud_) {
+		ros::spinOnce();
+	}
+	point_cloud_sub_.shutdown();
+	
 	//COMPUTE DESCRIPTORS
 	dm.computeDescriptors();
+	dm.arrangeDescriptors();
 	
 	// VIEW DETECTED POINTS ON THE CLOUD VIEWER
 	// VIEWER PARAMETERS
@@ -519,8 +549,9 @@ int main (int argc, char** argv){
 	int cloud_index;
   pcl::PointCloud<PointType>::Ptr cloud_a;
   pcl::PointCloud<PointType>::Ptr	highlight_cloud (new pcl::PointCloud<PointType>);
-  pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler (highlight_cloud, 0, 255, 0);
+  pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler (highlight_cloud, 255, 0, 0);
   retrieve_cloud_ = dm.getCloud(cloud_a);
+  
   if (retrieve_cloud_){
 		viewer.addPointCloud(cloud_a, "cloud_a");
 		retrieve_index_ = dm.getPointIndexSize(highlight_size_);
@@ -534,8 +565,7 @@ int main (int argc, char** argv){
 			viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "Highlight Cloud");
 		}
 	}
-	viewer.spinOnce();
-	
+
 	// VIEW THE CORRESPONDING IMAGE
 	std::cout << std::endl << "Starting Image Viewer..." << std::endl;
   cv::Mat image_display_;
@@ -543,8 +573,16 @@ int main (int argc, char** argv){
   retrieve_image_ = dm.getFrame(image_display_);
   if(retrieve_image_){
 		cv::imshow("Image Viewer", image_display_);
-		if(cv::waitKey(30) >= 0) std::cout << "Key out" << std::endl;
+		if(cv::waitKey(0) >= 0){
+			std::cout << "Key out" << std::endl;
+		}
 	}
+	
+	while (!viewer.wasStopped ()){
+		viewer.spinOnce();
+	}
+	
+	ros::shutdown();
 	
   return 0;
 }

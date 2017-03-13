@@ -405,7 +405,7 @@ void *start_cloud_viewer(void *threadid){
   // VIEWER PARAMETERS
   pcl::PointCloud<PointType>::Ptr cloud_a;
   pcl::PointCloud<PointType>::Ptr	highlight_cloud (new pcl::PointCloud<PointType>);
-  pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler (highlight_cloud, 0, 255, 0);
+  pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler (highlight_cloud, 255, 100, 0);
   
   bool update_ = false;
   bool retrieve_cloud_ = false;
