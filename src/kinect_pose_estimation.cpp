@@ -519,19 +519,27 @@ int main (int argc, char** argv){
 	
 	// LOAD SINGLE IMAGE AND POINT CLOUD
 	ros::NodeHandle nh_, nh_private_;
+	double begin =ros::Time::now().toSec();
+	double current = ros::Time::now().toSec();
+	double time_limit = 5.0;
 	
 	std::cout << std::endl << "Subscribing to Kinect Image Topic..." << std::endl;
 	image_transport::ImageTransport it(nh_);
-  image_transport::Subscriber image_sub_ = it.subscribe(image_topic_name, 1, image_callback);
-	while (!got_image_) {
+	image_transport::Subscriber image_sub_ = it.subscribe(image_topic_name, 1, image_callback);
+	while (current-begin < time_limit && !got_image_) {
+		current =ros::Time::now().toSec();
 		ros::spinOnce();
 	}
 	image_sub_.shutdown();
 	
+	begin =ros::Time::now().toSec();
+	current = ros::Time::now().toSec();
+
 	std::cout << std::endl << "Subscribing to Kinect Point Cloud Topic..." << std::endl;
-  ros::Subscriber point_cloud_sub_;
-  point_cloud_sub_ = nh_.subscribe(point_cloud_topic_name, 1, cloud_callback);
-  while (!got_cloud_) {
+	ros::Subscriber point_cloud_sub_;
+	point_cloud_sub_ = nh_.subscribe(point_cloud_topic_name, 1, cloud_callback);
+	while (current-begin < time_limit && !got_cloud_) {
+		current =ros::Time::now().toSec();
 		ros::spinOnce();
 	}
 	point_cloud_sub_.shutdown();

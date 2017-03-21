@@ -44,3 +44,7 @@ add_dependencies(kinect_depth_test ${catkin_EXPORTED_TARGETS})
 add_executable(kinect_pose_estimation src/kinect_pose_estimation.cpp)
 target_link_libraries(kinect_pose_estimation yaml-cpp ${PCL_LIBRARIES} ${catkin_LIBRARIES})
 add_dependencies(kinect_pose_estimation ${catkin_EXPORTED_TARGETS})
+
+add_executable(kinect_retrieve src/kinect_retrieve.cpp)
+target_link_libraries(kinect_retrieve yaml-cpp ${PCL_LIBRARIES} ${catkin_LIBRARIES})
+add_dependencies(kinect_retrieve ${catkin_EXPORTED_TARGETS})
