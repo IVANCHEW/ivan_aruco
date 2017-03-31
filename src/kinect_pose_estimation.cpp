@@ -362,6 +362,72 @@ bool arucoPoseEstimation(cv::Mat& input_image, int id, cv::Mat& tvec, cv::Mat& r
 	return marker_found;
 }
 
+// Circular Marker Detection Function
+bool circleEstimation (cv::Mat& input_image){
+	
+	int blur_param_ = 5;
+	int hsv_target_ = 145;
+	int hsv_threshold_ = 10;
+	int contour_area_min_ = 1000;
+	int contour_area_max_ = 4000;
+	int marker_count_ = 0;
+	
+	//#1 Get Image Shape Parameters
+	//std::cout << "Step 1: Getting Image Shape Parameters" << std::endl;
+	int row = input_image.rows;
+	int col = input_image.cols;
+	cv::imwrite(package_path_ + "/pose_estimation_frames/original_image.png", input_image);
+	
+	//#2 Median Blur Image
+	cv::Mat image_blurred;
+	cv::medianBlur(input_image, image_blurred, blur_param_);
+	cv::imwrite(package_path_ + "/pose_estimation_frames/blurred_image.png", image_blurred);
+	
+	//#3 Apply HSV Filtering
+	cv::Mat image_hsv;
+	cv::Mat image_hsv_filtered;
+	cv::cvtColor(image_blurred, image_hsv, CV_BGR2HSV);
+	cv::inRange(image_hsv,cv::Scalar(hsv_target_ - hsv_threshold_,0,0), cv::Scalar(hsv_target_ + hsv_threshold_,255,255),image_hsv_filtered);
+	cv::imwrite(package_path_ + "/pose_estimation_frames/hsv_image.png", image_hsv);
+	cv::imwrite(package_path_ + "/pose_estimation_frames/hsv_filtered_image.png", image_hsv_filtered);
+	
+	//#4 Find Contours
+	std::vector<std::vector<cv::Point> > contours;
+  std::vector<cv::Vec4i> hierarchy;
+  cv::findContours(image_hsv_filtered, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, cv::Point(0, 0) );
+  
+	//~ //#5 Filter Unnecessary Contours
+	cv::Mat image_contour_filtered =  cv::Mat::zeros( input_image.size(), CV_8U);
+	for (int i = 0 ; i < contours.size() ; i++){
+			double contour_area = cv::contourArea(contours[i]);
+			if((contour_area < contour_area_max_) && (contour_area > contour_area_min_)){
+				//#6 Compute Centroid and give temporary ID
+				std::cout << "Id: " << marker_count_ << ", area: " << contour_area << std::endl;
+				std::vector<std::vector<cv::Point> > con = std::vector<std::vector<cv::Point> >(1, contours[i]);
+				cv::Moments m = cv::moments(con[0], false);
+				cv::Point2f p = cv::Point2f((int)(m.m10/m.m00) , (int)(m.m01/m.m00));
+				cv::drawContours(input_image, con, -1, cv::Scalar(0, 255, 0), 1, 8);
+				cv::circle(input_image, p, 1, cv::Scalar(0, 0, 255), 1, 8, 0);
+				std::stringstream convert;
+				convert << marker_count_;
+				std::string s;
+				s = convert.str();
+				cv::putText(input_image, s, p, CV_FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255), 1, 8, false);
+				dm.loadPixelPoint(p, marker_count_);
+				marker_count_++;
+			}
+	}
+	cv::imwrite(package_path_ + "/pose_estimation_frames/contour_marked_image.png", input_image);
+	
+	//#7 Return True if sufficient markers are present to make pose estimate
+	if (marker_count_ >= 3){
+		dm.setPixelPointReady();
+		return true;
+	}else{
+		return false;
+	}
+}
+
 // CONFIGURATION AND SET-UP FUNCTIONS
 static void calcBoardCornerPositions(cv::Size boardSize, float squareSize, std::vector<cv::Point3f>& corners, std::string patternType){
     corners.clear();
@@ -456,7 +522,11 @@ void image_callback(const sensor_msgs::ImageConstPtr& msg){
 			image = cv_bridge::toCvShare(msg, "bgr8")->image;
 			
 			marker_found = false;
-			marker_found = arucoPoseEstimation(image, target_id, tvec, rvec, camera_matrix, dist_coeffs, true);
+			// FOR ARUCO
+			//marker_found = arucoPoseEstimation(image, target_id, tvec, rvec, camera_matrix, dist_coeffs, true);
+			
+			// FOR CIRCULAR MARKERS
+			marker_found = circleEstimation(image);
 			
 			cv::undistort(image, unDistort, camera_matrix, dist_coeffs);
 			std::cout << "Image Size: " << unDistort.size() << std::endl;
@@ -488,9 +558,9 @@ int main (int argc, char** argv){
   
   // VARIABLE INITIALISATION
   package_path_ = ros::package::getPath("ivan_aruco");   
-  std::string camera_name = "kinect_sd";
-  std::string point_cloud_topic_name = "/kinect2/sd/points";
-  std::string image_topic_name = "/kinect2/sd/image_color_rect";
+  std::string camera_name = "kinect";
+  std::string point_cloud_topic_name = "/kinect2/hd/points";
+  std::string image_topic_name = "/kinect2/hd/image_color_rect";
   
   // CAMERA CALIBRATION
 	camera_matrix = cv::Mat::eye(3, 3, CV_64F);

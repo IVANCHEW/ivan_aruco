@@ -429,6 +429,12 @@ void *start_cloud_viewer(void *threadid){
 			}
 			else{
 				viewer.updatePointCloud(cloud_a, "cloud_a");
+				//~ highlight_cloud->points.clear();
+				//~ int point_find = cloud_a->points.size() / 2;
+				//~ std::cout << "Index: " << point_find << std::endl;	
+				//~ highlight_cloud->points.push_back(cloud_a->points[point_find]);
+				//~ viewer.updatePointCloud(highlight_cloud, highlight_color_handler, "Highlight Cloud");
+				//~ std::cout << "Point position, x: " << cloud_a->points[point_find].x << " y: " << cloud_a->points[point_find].y << " z: " << cloud_a->points[point_find].z << std::endl;	
 				retrieve_index_ = dm.getPointIndexSize(highlight_size_);
 				if (retrieve_index_){
 					//Display distinguished key point
