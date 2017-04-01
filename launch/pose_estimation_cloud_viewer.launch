@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="debug"  default="False" />
+  
+  <node name="pose_estimation_cloud_viewer" pkg="ivan_aruco" type="pose_estimation_cloud_viewer" output="screen"> 
+    <param name="debug"           type="bool"   value="$(arg debug)"/> 
+    <param name="folder_name"     type="string"   value="$(arg folder_name)"/>
+   </node>
+  
+</launch>
+
+

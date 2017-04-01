@@ -8,6 +8,14 @@ kinect:
   k3: -0.0083855
   p1: -0.00088018
   p2: 0.052061
+  blur_param_: 5
+  hsv_target_: 145
+  hsv_threshold_: 10
+  contour_area_min_: 500
+  contour_area_max_: 4000
+  image_topic: /kinect2/hd/image_color_rect
+  cloud_topic: /kinect2/hd/points
+
 
 kinect_sd:
   fx: 229.49762333
@@ -19,6 +27,13 @@ kinect_sd:
   k3: 0.0193116
   p1: -0.00794104
   p2: -0.023647
+  blur_param_: 5
+  hsv_target_: 145
+  hsv_threshold_: 10
+  contour_area_min_: 50
+  contour_area_max_: 4000
+  image_topic: /kinect2/sd/image_color_rect
+  cloud_topic: /kinect2/sd/points
   
 kinect_sd2:
   fx: 1070
