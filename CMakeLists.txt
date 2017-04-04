@@ -52,3 +52,7 @@ add_dependencies(kinect_retrieve ${catkin_EXPORTED_TARGETS})
 add_executable(pose_estimation_cloud_viewer src/pose_estimation_cloud_viewer.cpp)
 target_link_libraries(pose_estimation_cloud_viewer yaml-cpp ${PCL_LIBRARIES} ${catkin_LIBRARIES})
 add_dependencies(pose_estimation_cloud_viewer ${catkin_EXPORTED_TARGETS})
+
+add_executable(single_pose_estimation src/single_pose_estimation.cpp)
+target_link_libraries(single_pose_estimation yaml-cpp ${PCL_LIBRARIES} ${catkin_LIBRARIES})
+add_dependencies(single_pose_estimation ${catkin_EXPORTED_TARGETS})
