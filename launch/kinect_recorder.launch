@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="debug"  				default="False" />
+  <arg name="bag_name_"  		default="recorder_save.bag" />
+  <arg name="folder_name_"  default="/kinect_record_saves/" />
+  
+  <node name="kinect_recorder" pkg="ivan_aruco" type="kinect_recorder" output="screen"> 
+    <param name="debug"           type="bool"   	value="$(arg debug)"/> 
+    <param name="bag_name_"      	type="string"   value="$(arg bag_name_)"/> 
+    <param name="folder_name_"     type="string"   value="$(arg folder_name_)"/> 
+   </node>
+  
+</launch>
+
+

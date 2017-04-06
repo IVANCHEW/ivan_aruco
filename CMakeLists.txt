@@ -56,3 +56,11 @@ add_dependencies(pose_estimation_cloud_viewer ${catkin_EXPORTED_TARGETS})
 add_executable(single_pose_estimation src/single_pose_estimation.cpp)
 target_link_libraries(single_pose_estimation yaml-cpp ${PCL_LIBRARIES} ${catkin_LIBRARIES})
 add_dependencies(single_pose_estimation ${catkin_EXPORTED_TARGETS})
+
+add_executable(kinect_recorder src/kinect_recorder.cpp)
+target_link_libraries(kinect_recorder yaml-cpp ${PCL_LIBRARIES} ${catkin_LIBRARIES})
+add_dependencies(kinect_recorder ${catkin_EXPORTED_TARGETS})
+
+add_executable(rosbag_replay src/rosbag_replay.cpp)
+target_link_libraries(rosbag_replay yaml-cpp ${PCL_LIBRARIES} ${catkin_LIBRARIES})
+add_dependencies(rosbag_replay ${catkin_EXPORTED_TARGETS})
