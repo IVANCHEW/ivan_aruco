@@ -58,6 +58,7 @@ class DataManagement
 		bool getPixelPoint(cv::Point2f &p);
 		bool getPointCloudIndex(int &index, int n);
 		bool getPointIndexSize(int &n);
+		bool getCloudAndImageLoadStatus();
 		
 		void computeDescriptors();
 		
@@ -154,8 +155,10 @@ void DataManagement::loadTransform(cv::Mat t, cv::Mat r){
 }
 
 void DataManagement::loadFrame(cv::Mat f){
+	if (!image_ready){
 		frame = f.clone();
 		image_ready = true;
+	}
 }
 
 void DataManagement::loadCloud(pcl::PointCloud<PointType>::Ptr &c){
@@ -233,6 +236,15 @@ bool DataManagement::getPointIndexSize(int &n){
 		else{
 			return false;
 		}
+}
+
+bool DataManagement::getCloudAndImageLoadStatus(){
+	if(image_ready && cloud_ready){
+		return true;
+	}
+	else{
+		return false;
+	}
 }
 
 void DataManagement::computeDescriptors(){

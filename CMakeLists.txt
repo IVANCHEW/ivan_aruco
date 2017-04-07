@@ -64,3 +64,8 @@ add_dependencies(kinect_recorder ${catkin_EXPORTED_TARGETS})
 add_executable(rosbag_replay src/rosbag_replay.cpp)
 target_link_libraries(rosbag_replay yaml-cpp ${PCL_LIBRARIES} ${catkin_LIBRARIES})
 add_dependencies(rosbag_replay ${catkin_EXPORTED_TARGETS})
+
+add_executable(test_bag_generator src/test_bag_generator.cpp)
+target_link_libraries(test_bag_generator yaml-cpp ${PCL_LIBRARIES} ${catkin_LIBRARIES})
+add_dependencies(test_bag_generator ${catkin_EXPORTED_TARGETS})
+

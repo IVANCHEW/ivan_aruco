@@ -1,13 +1,17 @@
 <?xml version="1.0"?>
 <launch>
-  <arg name="debug"  				default="False" />
-  <arg name="bag_name_"  		default="recorder_save.bag" />
-  <arg name="folder_name_"  default="/kinect_record_saves/" />
+  <arg name="debug"  							default="False" />
+  <arg name="bag_name_"  					default="recorder_save.bag" />
+  <arg name="folder_name_"  			default="/kinect_record_saves/" />
+  <arg name="point_cloud_topic_"  default="/kinect2/sd/points" />
+  <arg name="image_topic_"  			default="/kinect2/sd/image_color_rect" />
   
   <node name="kinect_recorder" pkg="ivan_aruco" type="kinect_recorder" output="screen"> 
-    <param name="debug"           type="bool"   	value="$(arg debug)"/> 
-    <param name="bag_name_"      	type="string"   value="$(arg bag_name_)"/> 
-    <param name="folder_name_"     type="string"   value="$(arg folder_name_)"/> 
+    <param name="debug"           			type="bool"   	value="$(arg debug)"/> 
+    <param name="bag_name_"      				type="string"   value="$(arg bag_name_)"/> 
+    <param name="folder_name_"    			type="string"   value="$(arg folder_name_)"/> 
+    <param name="point_cloud_topic_"    type="string"   value="$(arg point_cloud_topic_)"/> 
+    <param name="image_topic_"    			type="string"   value="$(arg image_topic_)"/> 
    </node>
   
 </launch>
