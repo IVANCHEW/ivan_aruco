@@ -59,6 +59,7 @@ class DataManagement
 		bool getPointCloudIndex(int &index, int n);
 		bool getPointIndexSize(int &n);
 		bool getCloudAndImageLoadStatus();
+		bool getImageLoadStatus();
 		
 		void computeDescriptors();
 		
@@ -70,10 +71,10 @@ class DataManagement
 		
 		void printDescriptors();
 		
-		bool detectMarkers(int blur_param_, int hsv_target_, int hsv_threshold_ , int contour_area_min_, int contour_area_max);
+		bool detectMarkers(int blur_param_, int hsv_target_, int hsv_threshold_ , int contour_area_min_, int contour_area_max, double contour_ratio_min_, double contour_ratio_max_);
 		
 		// Circular Marker Detection Function
-		bool circleEstimation (cv::Mat& input_image, int blur_param_, int hsv_target_, int hsv_threshold_ , int contour_area_min_, int contour_area_max_ ){
+		bool circleEstimation (cv::Mat& input_image, int blur_param_, int hsv_target_, int hsv_threshold_ , int contour_area_min_, int contour_area_max_,  double contour_ratio_min_, double contour_ratio_max_){
 			
 			int marker_count_ = 0;
 			
@@ -81,48 +82,63 @@ class DataManagement
 			//std::cout << "Step 1: Getting Image Shape Parameters" << std::endl;
 			int row = input_image.rows;
 			int col = input_image.cols;
-			cv::imwrite(package_path_ + "/pose_estimation_frames/original_image.png", input_image);
+			//~ cv::imwrite(package_path_ + "/pose_estimation_frames/original_image.png", input_image);
 			
 			//#2 Median Blur Image
 			cv::Mat image_blurred;
 			cv::medianBlur(input_image, image_blurred, blur_param_);
-			cv::imwrite(package_path_ + "/pose_estimation_frames/blurred_image.png", image_blurred);
+			//~ cv::imwrite(package_path_ + "/pose_estimation_frames/blurred_image.png", image_blurred);
 			
 			//#3 Apply HSV Filtering
 			cv::Mat image_hsv;
 			cv::Mat image_hsv_filtered;
 			cv::cvtColor(image_blurred, image_hsv, CV_BGR2HSV);
 			cv::inRange(image_hsv,cv::Scalar(hsv_target_ - hsv_threshold_,0,0), cv::Scalar(hsv_target_ + hsv_threshold_,255,255),image_hsv_filtered);
-			cv::imwrite(package_path_ + "/pose_estimation_frames/hsv_image.png", image_hsv);
-			cv::imwrite(package_path_ + "/pose_estimation_frames/hsv_filtered_image.png", image_hsv_filtered);
+			//~ cv::imwrite(package_path_ + "/pose_estimation_frames/hsv_image.png", image_hsv);
+			//~ cv::imwrite(package_path_ + "/pose_estimation_frames/hsv_filtered_image.png", image_hsv_filtered);
 			
 			//#4 Find Contours
 			std::vector<std::vector<cv::Point> > contours;
 			std::vector<cv::Vec4i> hierarchy;
 			cv::findContours(image_hsv_filtered, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, cv::Point(0, 0) );
 			
-			//~ //#5 Filter Unnecessary Contours
+			//#5 Filter Unnecessary Contours
 			cv::Mat image_contour_filtered =  cv::Mat::zeros( input_image.size(), CV_8U);
 			for (int i = 0 ; i < contours.size() ; i++){
 					double contour_area = cv::contourArea(contours[i]);
 					if((contour_area < contour_area_max_) && (contour_area > contour_area_min_)){
+
+						//#6 Check for Child Contours
+						bool marker_confirmed_ = false;
+						for (int j = i; j < hierarchy.size() ; j++){
+							if((hierarchy[j][3]==i) && (hierarchy[j][2]==-1)){
+								double child_area_ = cv::contourArea(contours[j]);
+								double contour_ratio_ = contour_area / child_area_;
+								if((contour_ratio_max_ >= contour_ratio_) && (contour_ratio_min_ <= contour_ratio_)){
+									marker_confirmed_ = true;
+								}
+							}
+						}
+						
 						//#6 Compute Centroid and give temporary ID
-						std::cout << "Id: " << marker_count_ << ", area: " << contour_area << std::endl;
-						std::vector<std::vector<cv::Point> > con = std::vector<std::vector<cv::Point> >(1, contours[i]);
-						cv::Moments m = cv::moments(con[0], false);
-						cv::Point2f p = cv::Point2f((int)(m.m10/m.m00) , (int)(m.m01/m.m00));
-						cv::drawContours(input_image, con, -1, cv::Scalar(0, 255, 0), 1, 8);
-						cv::circle(input_image, p, 1, cv::Scalar(0, 0, 255), 1, 8, 0);
-						std::stringstream convert;
-						convert << marker_count_;
-						std::string s;
-						s = convert.str();
-						cv::putText(input_image, s, p, CV_FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255), 2, 8, false);
-						loadPixelPoint(p, marker_count_);
-						marker_count_++;
+						if(marker_confirmed_){
+							std::cout << "Id: " << marker_count_ << ", area: " << contour_area << std::endl;
+							std::vector<std::vector<cv::Point> > con = std::vector<std::vector<cv::Point> >(1, contours[i]);
+							cv::Moments m = cv::moments(con[0], false);
+							cv::Point2f p = cv::Point2f((int)(m.m10/m.m00) , (int)(m.m01/m.m00));
+							cv::drawContours(input_image, con, -1, cv::Scalar(0, 255, 0), 1, 8);
+							cv::circle(input_image, p, 1, cv::Scalar(0, 0, 255), 1, 8, 0);
+							std::stringstream convert;
+							convert << marker_count_;
+							std::string s;
+							s = convert.str();
+							cv::putText(input_image, s, p, CV_FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255), 2, 8, false);
+							loadPixelPoint(p, marker_count_);
+							marker_count_++;
+						}
 					}
 			}
-			cv::imwrite(package_path_ + "/pose_estimation_frames/contour_marked_image.png", input_image);
+			//~ cv::imwrite(package_path_ + "/pose_estimation_frames/contour_marked_image.png", input_image);
 			
 			//#7 Return True if sufficient markers are present to make pose estimate
 			if (marker_count_ >= 3){
@@ -247,6 +263,10 @@ bool DataManagement::getCloudAndImageLoadStatus(){
 	}
 }
 
+bool DataManagement::getImageLoadStatus(){
+	return image_ready;
+}
+
 void DataManagement::computeDescriptors(){
 	if(pixel_point_ready && cloud_ready){
 		int n = point_id.size();
@@ -338,10 +358,10 @@ void DataManagement::printDescriptors(){
 	}
 }
 
-bool DataManagement::detectMarkers(int blur_param_, int hsv_target_, int hsv_threshold_ , int contour_area_min_, int contour_area_max){
+bool DataManagement::detectMarkers(int blur_param_, int hsv_target_, int hsv_threshold_ , int contour_area_min_, int contour_area_max , double contour_ratio_min_, double contour_ratio_max_){
 	if(image_ready){
 		bool marker_found = false;
-		marker_found = circleEstimation(frame, blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max);
+		marker_found = circleEstimation(frame, blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max, contour_ratio_min_, contour_ratio_max_);
 		return marker_found;
 	}else{
 		std::cout << "Image not ready, cannot detect markers" << std::endl;

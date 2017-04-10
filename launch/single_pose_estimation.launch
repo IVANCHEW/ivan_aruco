@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="debug"  default="False" />
+  <arg name="image_path_"  			default="/pose_estimation_frames/Test6/original_image.png" />
+  <arg name="cloud_path_"  			default="/pose_estimation_frames/Test6/cloud.pcd" />
+  
+  <arg name="blur_param_"			default="5" />
+  <arg name="hsv_target_"			default="145" />
+  <arg name="hsv_threshold_"	default="10" />
+  <arg name="contour_area_min_"	default="150" />
+  <arg name="contour_area_max_"	default="1000" />
+  <arg name="contour_ratio_min_"	default="6" />
+  <arg name="contour_ratio_max_"	default="9" />
+  
+  <node name="single_pose_estimation" pkg="ivan_aruco" type="single_pose_estimation" output="screen"> 
+		<param name="image_path_"          	type="string"   	value="$(arg image_path_)"/> 
+		<param name="cloud_path_"          	type="string"   	value="$(arg cloud_path_)"/> 
+		<param name="blur_param_"          	type="int"   			value="$(arg blur_param_)"/> 
+		<param name="hsv_target_"          	type="int"   			value="$(arg hsv_target_)"/> 
+		<param name="hsv_threshold_"   			type="int"   			value="$(arg hsv_threshold_)"/> 
+		<param name="contour_area_min_"    	type="int"   			value="$(arg contour_area_min_)"/> 
+		<param name="contour_area_max_"     type="int"   			value="$(arg contour_area_max_)"/> 
+		<param name="contour_ratio_min_"    type="double"   			value="$(arg contour_ratio_min_)"/> 
+		<param name="contour_ratio_max_"    type="double"   			value="$(arg contour_ratio_max_)"/> 
+	</node>
+	
+</launch>
+
+

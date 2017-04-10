@@ -87,6 +87,8 @@ int hsv_target_ = 145;
 int hsv_threshold_ = 10;
 int contour_area_min_ = 500;
 int contour_area_max_ = 4000;
+double contour_ratio_min_ = 6;
+double contour_ratio_max_ = 9;
 
 // For Software control
 int input_value_ = 0;
@@ -166,25 +168,40 @@ bool circleEstimation (cv::Mat& input_image, int blur_param_, int hsv_target_, i
   std::vector<cv::Vec4i> hierarchy;
   cv::findContours(image_hsv_filtered, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, cv::Point(0, 0) );
   
-	//~ //#5 Filter Unnecessary Contours
+	//#5 Filter Unnecessary Contours
 	cv::Mat image_contour_filtered =  cv::Mat::zeros( input_image.size(), CV_8U);
 	for (int i = 0 ; i < contours.size() ; i++){
 			double contour_area = cv::contourArea(contours[i]);
 			if((contour_area < contour_area_max_) && (contour_area > contour_area_min_)){
+				
+				//#6 Check for Child Contours
+				bool marker_confirmed_ = false;
+				for (int j = i; j < hierarchy.size() ; j++){
+					if((hierarchy[j][3]==i) && (hierarchy[j][2]==-1)){
+						double child_area_ = cv::contourArea(contours[j]);
+						double contour_ratio_ = contour_area / child_area_;
+						if((contour_ratio_max_ >= contour_ratio_) && (contour_ratio_min_ <= contour_ratio_)){
+							marker_confirmed_ = true;
+						}
+					}
+				}
+				
 				//#6 Compute Centroid and give temporary ID
-				std::cout << "Id: " << marker_count_ << ", area: " << contour_area << std::endl;
-				std::vector<std::vector<cv::Point> > con = std::vector<std::vector<cv::Point> >(1, contours[i]);
-				cv::Moments m = cv::moments(con[0], false);
-				cv::Point2f p = cv::Point2f((int)(m.m10/m.m00) , (int)(m.m01/m.m00));
-				cv::drawContours(input_image, con, -1, cv::Scalar(0, 255, 0), 1, 8);
-				cv::circle(input_image, p, 1, cv::Scalar(0, 0, 255), 1, 8, 0);
-				std::stringstream convert;
-				convert << marker_count_;
-				std::string s;
-				s = convert.str();
-				cv::putText(input_image, s, p, CV_FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255), 2, 8, false);
-				dm.loadPixelPoint(p, marker_count_);
-				marker_count_++;
+				if(marker_confirmed_){
+					std::cout << "Id: " << marker_count_ << ", area: " << contour_area << std::endl;
+					std::vector<std::vector<cv::Point> > con = std::vector<std::vector<cv::Point> >(1, contours[i]);
+					cv::Moments m = cv::moments(con[0], false);
+					cv::Point2f p = cv::Point2f((int)(m.m10/m.m00) , (int)(m.m01/m.m00));
+					cv::drawContours(input_image, con, -1, cv::Scalar(0, 255, 0), 1, 8);
+					cv::circle(input_image, p, 1, cv::Scalar(0, 0, 255), 1, 8, 0);
+					std::stringstream convert;
+					convert << marker_count_;
+					std::string s;
+					s = convert.str();
+					cv::putText(input_image, s, p, CV_FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255), 2, 8, false);
+					dm.loadPixelPoint(p, marker_count_);
+					marker_count_++;
+				}
 			}
 	}
 	cv::imwrite(package_path_ + "/pose_estimation_frames/contour_marked_image.png", input_image);
@@ -236,16 +253,6 @@ void updateParameters(YAML::Node config){
     dist_coeffs.at<double>(2,0) = config["p1"].as<double>();
   if (config["p2"])
     dist_coeffs.at<double>(3,0) = config["p2"].as<double>();
-  if (config["blur_param_"])
-		blur_param_ = config["blur_param_"].as<int>();
-  if (config["hsv_target_"])
-		hsv_target_ = config["hsv_target_"].as<int>();
-  if (config["hsv_threshold_"])
-		hsv_threshold_ = config["hsv_threshold_"].as<int>();
-  if (config["contour_area_min_"])
-		contour_area_min_ = config["contour_area_min_"].as<int>();
-  if (config["contour_area_max_ "])
-		contour_area_max_  = config["contour_area_max_ "].as<int>();
 	if (config["image_topic"])
 		image_topic_name = config["image_topic"].as<std::string>();
 	if (config["cloud_topic"])
@@ -293,9 +300,21 @@ void keyboardEventOccurred (const pcl::visualization::KeyboardEvent &event, void
 int main (int argc, char** argv){
   std::cout << std::endl << "Kinect Depth Test Package" << std::endl;
   ros::init(argc, argv, "kinect_pose_estimation");
+  ros::NodeHandle nh_;
+  ros::NodeHandle nh_private_("~");
+  std::string image_path_, cloud_path_;
   
   // VARIABLE INITIALISATION
   package_path_ = ros::package::getPath("ivan_aruco");   
+	nh_private_.getParam("image_path_", image_path_);
+	nh_private_.getParam("cloud_path_", cloud_path_);
+	nh_private_.getParam("blur_param_", blur_param_);
+  nh_private_.getParam("hsv_target_", hsv_target_);
+  nh_private_.getParam("hsv_threshold_", hsv_threshold_);
+  nh_private_.getParam("contour_area_min_", contour_area_min_);
+  nh_private_.getParam("contour_area_max_", contour_area_max_);
+  nh_private_.getParam("contour_ratio_min_", contour_ratio_min_);
+  nh_private_.getParam("contour_ratio_max_", contour_ratio_max_);
 	
   // CAMERA CALIBRATION
 	camera_matrix = cv::Mat::eye(3, 3, CV_64F);
@@ -322,9 +341,7 @@ int main (int argc, char** argv){
 	}
 	std::cout << "]" << std::endl;
 	
-	// LOAD SINGLE IMAGE AND POINT CLOUD
-	ros::NodeHandle nh_, nh_private_;
-	
+	// LOAD SINGLE IMAGE AND POINT CLOUD	
 	double full_test_begin_ =ros::Time::now().toSec();
 	double full_test_end_ = ros::Time::now().toSec();
 	full_test_begin_ = ros::Time::now().toSec();
@@ -332,7 +349,6 @@ int main (int argc, char** argv){
 	//ADD IMAGE
 	std::cout << "Adding Image" << std::endl;
 	cv::Mat image;
-	std::string image_path_ = "/pose_estimation_frames/Test6/original_image.png";
 	std::cout << "Reading image from: " << package_path_  + image_path_ << std::endl;
 	image = cv::imread(package_path_ + image_path_, CV_LOAD_IMAGE_COLOR); 
 	dm.loadFrame(image);
@@ -340,7 +356,6 @@ int main (int argc, char** argv){
 	//ADD POINT CLOUD
 	std::cout << "Adding Point Cloud" << std::endl;
 	pcl::PCDReader reader;
-	std::string cloud_path_ = "/pose_estimation_frames/Test6/cloud.pcd";
 	std::cout << "Reading cloud from: " << package_path_  + cloud_path_ << std::endl;
 	pcl::PointCloud<PointType>::Ptr cloud_load(new pcl::PointCloud<PointType>);
 	reader.read (package_path_ + cloud_path_, *cloud_load);
@@ -348,7 +363,7 @@ int main (int argc, char** argv){
 	
 	//COMPUTE DESCRIPTORS
 	std::cout << "Begin Descriptor Computation" << std::endl;
-	if (dm.detectMarkers(blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max_)){
+	if (dm.detectMarkers(blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max_, contour_ratio_min_, contour_ratio_max_)){
 		dm.computeDescriptors();
 		dm.arrangeDescriptors();
 	}

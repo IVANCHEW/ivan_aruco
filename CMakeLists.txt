@@ -69,3 +69,6 @@ add_executable(test_bag_generator src/test_bag_generator.cpp)
 target_link_libraries(test_bag_generator yaml-cpp ${PCL_LIBRARIES} ${catkin_LIBRARIES})
 add_dependencies(test_bag_generator ${catkin_EXPORTED_TARGETS})
 
+add_executable(replay_analysis src/replay_analysis.cpp)
+target_link_libraries(replay_analysis yaml-cpp ${PCL_LIBRARIES} ${catkin_LIBRARIES})
+add_dependencies(replay_analysis ${catkin_EXPORTED_TARGETS})

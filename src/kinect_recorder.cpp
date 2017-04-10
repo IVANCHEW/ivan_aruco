@@ -172,8 +172,8 @@ int main (int argc, char** argv){
     
   // VARIABLE INITIALISATION
   package_path_ = ros::package::getPath("ivan_aruco");   
-  save_path_ = package_path_ + "/kinect_record_saves/";
-  
+  //save_path_ = package_path_ + "/kinect_record_saves/";
+  save_path_ = package_path_;
 	// LOAD SINGLE IMAGE AND POINT CLOUD
 	ros::NodeHandle nh_;
 	ros::NodeHandle nh_private_("~");

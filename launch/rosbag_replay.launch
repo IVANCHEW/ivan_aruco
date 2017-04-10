@@ -1,15 +1,19 @@
 <?xml version="1.0"?>
 <launch>
   <arg name="debug"  default="False" />
-  <arg name="bag_name_"  		default="recorder_save.bag" />
-  <arg name="folder_name_"  default="/kinect_record_saves/" />
-  <arg name="single_frame_"  default="False" />
+  <arg name="bag_name_"  			default="recorder_save.bag" />
+  <arg name="folder_name_"  	default="/kinect_record_saves/" />
+  <arg name="single_frame_"  	default="False" />
+  <arg name="viewer_off_" 		default="False" />
+  <arg name="delay_time_"			default="0.02" />
   
   <node name="rosbag_replay" pkg="ivan_aruco" type="rosbag_replay" output="screen"> 
     <param name="debug"           	type="bool"   	value="$(arg debug)"/> 
     <param name="bag_name_"      		type="string"   value="$(arg bag_name_)"/> 
     <param name="folder_name_"     	type="string"   value="$(arg folder_name_)"/> 
     <param name="single_frame_"    	type="bool"   	value="$(arg single_frame_)"/> 
+    <param name="viewer_off_"    		type="bool"   	value="$(arg viewer_off_)"/> 
+    <param name="delay_time_"				type="double"		value="$(arg delay_time_)"/>
    </node>
   
 </launch>

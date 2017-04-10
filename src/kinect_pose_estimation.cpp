@@ -87,6 +87,8 @@ int hsv_target_ = 145;
 int hsv_threshold_ = 10;
 int contour_area_min_ = 500;
 int contour_area_max_ = 4000;
+double contour_ratio_min_ = 6;
+double contour_ratio_max_ = 9;
 
 // For Software control
 int input_value_ = 0;
@@ -402,7 +404,7 @@ int main (int argc, char** argv){
 	point_cloud_sub_.shutdown();
 	
 	//COMPUTE DESCRIPTORS
-	if (dm.detectMarkers(blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max_)){
+	if (dm.detectMarkers(blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max_, contour_ratio_min_, contour_ratio_max_)){
 		dm.computeDescriptors();
 		dm.arrangeDescriptors();
 	}
