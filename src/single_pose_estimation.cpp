@@ -96,6 +96,7 @@ bool debug_;
 bool got_image_ = false;
 bool got_cloud_ = false;
 int image_buffer_ = 0;
+bool aruco_detection_ = false;
 
 #include "data_manager.cpp"
 DataManagement dm;
@@ -133,7 +134,7 @@ bool arucoPoseEstimation(cv::Mat& input_image, int id, cv::Mat& tvec, cv::Mat& r
 		marker_found = true;
 	}
 	else{
-		//~ std::cout << "No markers detected" << std::endl;
+		std::cout << "No markers detected" << std::endl;
 	}
 	
 	return marker_found;
@@ -315,6 +316,7 @@ int main (int argc, char** argv){
   nh_private_.getParam("contour_area_max_", contour_area_max_);
   nh_private_.getParam("contour_ratio_min_", contour_ratio_min_);
   nh_private_.getParam("contour_ratio_max_", contour_ratio_max_);
+	nh_private_.getParam("aruco_detection_", aruco_detection_);
 	
   // CAMERA CALIBRATION
 	camera_matrix = cv::Mat::eye(3, 3, CV_64F);
@@ -363,12 +365,17 @@ int main (int argc, char** argv){
 	
 	//COMPUTE DESCRIPTORS
 	std::cout << "Begin Descriptor Computation" << std::endl;
-	if (dm.detectMarkers(blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max_, contour_ratio_min_, contour_ratio_max_)){
+	cv::Mat tvec;
+	cv::Mat rvec;
+	
+	if(aruco_detection_){
+		std::cout << "Using ARUCO Detection" << std::endl;
+		arucoPoseEstimation(image, 0, tvec, rvec, camera_matrix, dist_coeffs, true);
+	}else{
+		std::cout << "Using Circular Marker Detection" << std::endl;
+		dm.detectMarkers(blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max_, contour_ratio_min_, contour_ratio_max_, false);
 		dm.computeDescriptors();
 		dm.arrangeDescriptors();
-	}
-	else{
-		std::cout << "No markers detected" << std::endl;
 	}
 	
 	full_test_end_ = ros::Time::now().toSec();
@@ -400,14 +407,6 @@ int main (int argc, char** argv){
 		}
 	}
 
-	// SAVE POINT CLOUDS
-	//~ cloud_a->width = cloud_a->points.size ();
-	//~ cloud_a->height = 1;
-	//~ highlight_cloud->width = highlight_cloud->points.size ();
-	//~ highlight_cloud->height = 1;
-	//~ pcl::io::savePCDFileASCII(package_path_ + "/pose_estimation_frames/cloud.pcd",*cloud_a);
-	//~ pcl::io::savePCDFileASCII(package_path_ + "/pose_estimation_frames/highlight_cloud.pcd",*highlight_cloud);
-	
 	// VIEW THE CORRESPONDING IMAGE
 	std::cout << std::endl << "Starting Image Viewer..." << std::endl;
   cv::Mat image_display_;

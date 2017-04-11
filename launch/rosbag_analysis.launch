@@ -14,6 +14,7 @@
   <arg name="contour_area_max_"	default="500" />
   <arg name="contour_ratio_min_"	default="6" />
   <arg name="contour_ratio_max_"	default="9" />
+  <arg name="aruco_detection_" 		default="False" />
   
   <node name="rosbag_replay" pkg="ivan_aruco" type="rosbag_replay" output="screen"> 
     <param name="debug"           	type="bool"   	value="$(arg debug)"/> 
@@ -32,6 +33,7 @@
 		<param name="contour_area_max_"     type="int"   	value="$(arg contour_area_max_)"/> 
 		<param name="contour_ratio_min_"    type="double"   	value="$(arg contour_ratio_min_)"/> 
 		<param name="contour_ratio_max_"    type="double"   	value="$(arg contour_ratio_max_)"/> 
+		<param name="aruco_detection_"    	type="bool"   		value="$(arg aruco_detection_)"/> 
 	</node>
 	
 </launch>

@@ -11,6 +11,7 @@
   <arg name="contour_area_max_"	default="1000" />
   <arg name="contour_ratio_min_"	default="6" />
   <arg name="contour_ratio_max_"	default="9" />
+  <arg name="aruco_detection_" 		default="False" />
   
   <node name="single_pose_estimation" pkg="ivan_aruco" type="single_pose_estimation" output="screen"> 
 		<param name="image_path_"          	type="string"   	value="$(arg image_path_)"/> 
@@ -22,6 +23,7 @@
 		<param name="contour_area_max_"     type="int"   			value="$(arg contour_area_max_)"/> 
 		<param name="contour_ratio_min_"    type="double"   			value="$(arg contour_ratio_min_)"/> 
 		<param name="contour_ratio_max_"    type="double"   			value="$(arg contour_ratio_max_)"/> 
+		<param name="aruco_detection_"    	type="bool"   				value="$(arg aruco_detection_)"/> 
 	</node>
 	
 </launch>

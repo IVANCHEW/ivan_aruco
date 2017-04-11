@@ -404,7 +404,7 @@ int main (int argc, char** argv){
 	point_cloud_sub_.shutdown();
 	
 	//COMPUTE DESCRIPTORS
-	if (dm.detectMarkers(blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max_, contour_ratio_min_, contour_ratio_max_)){
+	if (dm.detectMarkers(blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max_, contour_ratio_min_, contour_ratio_max_, false)){
 		dm.computeDescriptors();
 		dm.arrangeDescriptors();
 	}

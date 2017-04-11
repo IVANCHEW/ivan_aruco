@@ -70,6 +70,7 @@ int contour_area_min_;
 int contour_area_max_;
 double contour_ratio_min_;
 double contour_ratio_max_;
+bool aruco_detection_;
 
 static void calcBoardCornerPositions(cv::Size boardSize, float squareSize, std::vector<cv::Point3f>& corners, std::string patternType){
     corners.clear();
@@ -189,16 +190,28 @@ void *start_ros_callback(void *threadid){
   pthread_exit(NULL);
 }
 
-void *start_image_viewer(void *threadid){
+void *start_viewer(void *threadid){
 	long tid;
   tid = (long)threadid;
   std::cout << std::endl << "Starting Image Viewer, Thread ID : " << tid << std::endl;
   
-  // VIEWER PARAMETER
+  // IMAGE VIEWER PARAMETER
   cv::Mat image_display_;
+  cv::namedWindow("Image Viewer",1);
   bool retrieve_image_ = false;
   double current_time_ = ros::Time::now().toSec();
   double last_retrieved_time_ = ros::Time::now().toSec();
+  
+  // POINT CLOUD VIEWER PARAMETER
+  pcl::visualization::PCLVisualizer viewer("Kinect Viewer");
+  pcl::PointCloud<PointType>::Ptr cloud (new pcl::PointCloud<PointType> ());
+  pcl::PointCloud<PointType>::Ptr highlight_cloud (new pcl::PointCloud<PointType> ());
+  pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler (highlight_cloud, 255, 0, 0);
+  bool first_cloud_ = true;
+  bool retrieve_cloud_ = false;
+  bool retrieve_index_ = false;
+  int highlight_size_;
+  int cloud_index;
   
   // VIEWER LOOP
   while (!stop_all_){
@@ -209,11 +222,16 @@ void *start_image_viewer(void *threadid){
 			stop_all_  = true;
 		}
 		
-		if(dm.getImageLoadStatus()){
-			dm.detectMarkers(blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max_, contour_ratio_min_, contour_ratio_max_);
+		// PROCESS IMAGE
+		if(dm.getCloudAndImageLoadStatus()){
+			next_frame_ = false;
+			dm.detectMarkers(blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max_, contour_ratio_min_, contour_ratio_max_, aruco_detection_);
 			retrieve_image_ = dm.getFrame(image_display_);
+			retrieve_cloud_ = dm.getCloud(cloud);
+			next_frame_ = true;
 		}
 		
+		// DISPLAY IMAGE
 		if(retrieve_image_){
 			last_retrieved_time_ = ros::Time::now().toSec();
 			cv::imshow("Image Viewer", image_display_);
@@ -222,11 +240,43 @@ void *start_image_viewer(void *threadid){
 				stop_all_ = true;
 			}
 		}
+		
+		// DISPLAY CLOUD
+		if (retrieve_cloud_){
+			if (first_cloud_){
+				std::cout << "Added new cloud to viewer" << std::endl;
+				viewer.addPointCloud(cloud, "cloud");
+				highlight_cloud->points.push_back(cloud->points[0]);
+				viewer.addPointCloud (highlight_cloud, highlight_color_handler, "Highlight Cloud");
+				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "Highlight Cloud");
+				first_cloud_ = false;
+			}
+			else{
+				viewer.updatePointCloud(cloud, "cloud");
+				highlight_cloud->points.clear();
+				retrieve_index_ = dm.getPointIndexSize(highlight_size_);
+				if (retrieve_index_){
+					//Display distinguished key point
+					for (int n=0 ; n < highlight_size_ ; n++){
+						dm.getPointCloudIndex(cloud_index, n);
+						highlight_cloud->points.push_back(cloud->points[cloud_index]);
+					}
+				}
+				viewer.updatePointCloud(highlight_cloud, highlight_color_handler, "Highlight Cloud");
+				dm.clearPixelPoints();
+			}
+			viewer.spinOnce();
+		}
+		
+		retrieve_cloud_ = false;
 		retrieve_image_ = false;
+		retrieve_index_ = false;
 	}
 	std::cout << "Exiting Image Viewer Thread" << std::endl;
 	pthread_exit(NULL);
 }
+
+
 
 int main (int argc, char** argv){
   std::cout << std::endl << "Replay Analysis Package" << std::endl;
@@ -244,6 +294,7 @@ int main (int argc, char** argv){
   nh_private_.getParam("contour_area_max_", contour_area_max_);
   nh_private_.getParam("contour_ratio_min_", contour_ratio_min_);
   nh_private_.getParam("contour_ratio_max_", contour_ratio_max_);
+  nh_private_.getParam("aruco_detection_", aruco_detection_);
   
   // CAMERA CALIBRATION
 	camera_matrix = cv::Mat::eye(3, 3, CV_64F);
@@ -269,6 +320,9 @@ int main (int argc, char** argv){
 	}
 	std::cout << "]" << std::endl;
 	
+	// LOAD CAMERA PARAMETERS
+	dm.setCameraParameters(camera_matrix, dist_coeffs);
+	
   // THREADING
   pthread_t thread[3];
   pthread_attr_t attr;
@@ -286,17 +340,8 @@ int main (int argc, char** argv){
   }
   
   // PREPARE VIEWER THREAD
-  //~ i++;
-  //~ viewer.registerKeyboardCallback (keyboardEventOccurred, (void*)&viewer);
-  //~ thread_error_ = pthread_create(&thread[i], NULL, start_cloud_viewer, (void *)i);
-  //~ if (thread_error_){
-    //~ std::cout << "Error:unable to create thread," << thread_error_ << std::endl;
-    //~ exit(-1);
-  //~ }
-
-  // PREPARE IMAGE VIEWER CALLBACK
   i++;
-  thread_error_ = pthread_create(&thread[i], NULL, start_image_viewer, (void *)i);
+  thread_error_ = pthread_create(&thread[i], NULL, start_viewer, (void *)i);
   if (thread_error_){
     std::cout << "Error:unable to create thread," << thread_error_ << std::endl;
     exit(-1);

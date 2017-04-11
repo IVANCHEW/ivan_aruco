@@ -4,6 +4,7 @@
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
+#include <opencv2/aruco.hpp>
 
 // POINT CLOUD PROCESSING
 #include <pcl_conversions/pcl_conversions.h>
@@ -26,7 +27,11 @@ class DataManagement
 	
 		cv::Mat tvec;
 		cv::Mat rvec;
+		cv::Mat camera_matrix;
+		cv::Mat dist_coeffs;
 		cv::Mat frame;
+		float aruco_size = 0.08/2;
+		cv::Ptr<cv::aruco::Dictionary> dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
 		std::vector <int> point_id;
 		std::vector <int> cloud_index;
 		std::vector < std::vector < float > > feature_desc;
@@ -40,11 +45,13 @@ class DataManagement
 		bool pixel_point_ready = false;
 		bool reading_pixel_point = false;
 		bool parameters_ready = false;
+		bool camera_parameters_ready = false;
 		pcl::PointCloud<PointType>::Ptr cloud;
 		
 	public:
 	
 		void setParameters(double h, double w, std::string p);
+		void setCameraParameters(cv::Mat c, cv::Mat d);
 		void setPixelPointReady();
 	
 		void loadTransform(cv::Mat t, cv::Mat r);
@@ -71,7 +78,7 @@ class DataManagement
 		
 		void printDescriptors();
 		
-		bool detectMarkers(int blur_param_, int hsv_target_, int hsv_threshold_ , int contour_area_min_, int contour_area_max, double contour_ratio_min_, double contour_ratio_max_);
+		bool detectMarkers(int blur_param_, int hsv_target_, int hsv_threshold_ , int contour_area_min_, int contour_area_max, double contour_ratio_min_, double contour_ratio_max_, bool aruco_detection_);
 		
 		// Circular Marker Detection Function
 		bool circleEstimation (cv::Mat& input_image, int blur_param_, int hsv_target_, int hsv_threshold_ , int contour_area_min_, int contour_area_max_,  double contour_ratio_min_, double contour_ratio_max_){
@@ -120,7 +127,7 @@ class DataManagement
 							}
 						}
 						
-						//#6 Compute Centroid and give temporary ID
+						//#7 Compute Centroid and give temporary ID
 						if(marker_confirmed_){
 							std::cout << "Id: " << marker_count_ << ", area: " << contour_area << std::endl;
 							std::vector<std::vector<cv::Point> > con = std::vector<std::vector<cv::Point> >(1, contours[i]);
@@ -140,14 +147,56 @@ class DataManagement
 			}
 			//~ cv::imwrite(package_path_ + "/pose_estimation_frames/contour_marked_image.png", input_image);
 			
-			//#7 Return True if sufficient markers are present to make pose estimate
-			if (marker_count_ >= 3){
+			//#8 Return True if sufficient markers are present to make pose estimate
+			if (marker_count_ >= 1){
 				setPixelPointReady();
 				return true;
 			}else{
 				return false;
 			}
 		}
+
+		// ARUCO Marker Detection function
+		bool arucoPoseEstimation(cv::Mat& input_image, int id, cv::Mat& tvec, cv::Mat& rvec, cv::Mat& mtx, cv::Mat& dist, bool draw_axis){
+			// Contextual Parameters
+			//std::cout << std::endl << "Pose estimation called..." << std::endl;
+			float aruco_square_size = aruco_size*2;
+			bool marker_found = false;
+			std::vector< int > marker_ids;
+			std::vector< std::vector<cv::Point2f> > marker_corners, rejected_candidates;
+			cv::Mat gray;
+			
+			cv::cvtColor(input_image, gray, cv::COLOR_BGR2GRAY);
+			cv::aruco::detectMarkers(gray, dictionary, marker_corners, marker_ids);	
+			clearPixelPoints();
+			std::cout << "Number of markers detected: " << marker_ids.size() << std::endl;
+			if (marker_ids.size() > 0){
+				for (int i = 0 ; i < marker_ids.size() ; i++){
+					std::cout << "Marker ID found: " << marker_ids[i] << std::endl;
+					
+					std::vector< std::vector<cv::Point2f> > single_corner(1);
+					single_corner[0] = marker_corners[i];
+					
+					for (int j = 0; j < 4; j++){
+						loadPixelPoint(marker_corners[i][j], marker_ids[i]);
+					}
+					
+					cv::aruco::estimatePoseSingleMarkers(single_corner, aruco_square_size, mtx, dist, rvec, tvec);
+					if (draw_axis && camera_parameters_ready){
+						std::cout << "Drawing markers and axis" << std::endl;
+						cv::aruco::drawDetectedMarkers(input_image, marker_corners, marker_ids);
+						cv::aruco::drawAxis(input_image, mtx, dist, rvec, tvec, aruco_square_size/2);
+					}
+				}
+				setPixelPointReady();
+				marker_found = true;
+			}
+			else{
+				std::cout << "No markers detected" << std::endl;
+			}
+			
+			return marker_found;
+}
 };
 
 void DataManagement::setParameters(double h, double w, std::string p){
@@ -158,6 +207,12 @@ void DataManagement::setParameters(double h, double w, std::string p){
 	std::cout << std::endl << "Parameters set. W = " << frame_width << " H = " << frame_height << std::endl;
 	
 	parameters_ready = true;
+}
+
+void DataManagement::setCameraParameters(cv::Mat c, cv::Mat d){
+	camera_matrix = c;
+	dist_coeffs = d;
+	camera_parameters_ready = true;
 }
 
 void DataManagement::setPixelPointReady(){
@@ -187,7 +242,7 @@ void DataManagement::loadCloud(pcl::PointCloud<PointType>::Ptr &c){
 // Also computes corresponding cloud index with the given pixel position
 void DataManagement::loadPixelPoint(cv::Point2f p, int id){
 	std::cout << "Loading pixel point " << index_count << " . x: " << p.x << ", y: " << p.y << std::endl;
-	int index_temp = p.y * frame_width + p.x;
+	int index_temp = (p.y) * frame_width + p.x;
 	cloud_index.push_back(index_temp);
 	point_id.push_back(id);
 	pixel_point_ready = true;
@@ -358,10 +413,14 @@ void DataManagement::printDescriptors(){
 	}
 }
 
-bool DataManagement::detectMarkers(int blur_param_, int hsv_target_, int hsv_threshold_ , int contour_area_min_, int contour_area_max , double contour_ratio_min_, double contour_ratio_max_){
+bool DataManagement::detectMarkers(int blur_param_, int hsv_target_, int hsv_threshold_ , int contour_area_min_, int contour_area_max , double contour_ratio_min_, double contour_ratio_max_, bool aruco_detection_){
 	if(image_ready){
 		bool marker_found = false;
-		marker_found = circleEstimation(frame, blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max, contour_ratio_min_, contour_ratio_max_);
+		if(aruco_detection_){
+			marker_found = arucoPoseEstimation(frame, 0, tvec, rvec, camera_matrix, dist_coeffs, true);
+		}else{
+			marker_found = circleEstimation(frame, blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max, contour_ratio_min_, contour_ratio_max_);
+		}
 		return marker_found;
 	}else{
 		std::cout << "Image not ready, cannot detect markers" << std::endl;
