@@ -75,10 +75,30 @@ class DataManagement
 		bool getPointIndexSize(int &n);
 		bool getCloudAndImageLoadStatus();
 		bool getImageLoadStatus();
+		
+		/* Documentation: Determining Matching Descriptors
+		 * Determines if there are matching descriptors between a scene and those stored in a database.
+		 * Requires that pixel_point_ready_ and database_desc_ready_ to be toggled true.
+		 * When one match is found:
+		 * 1. Code breaks.
+		 * 2. Corresponding scene and database marker indexes are stored in: correspondence_point_ and correspondence_database_.
+		 * 3. Label Marker Function is called.
+		 * */
 		bool getMatchingDescriptor();
 		
+		/* Documentation: Descriptor Computation
+		 * After the detectMarkers function is called, the point_id and cloud_index vectors would be loaded.
+		 * The descriptor computation would calculate the euclidean distance between each point and all of its surrounding points.
+		 * These distance will form the elements of the descriptor of each point.
+		 * The descriptors are stored into vectors: feature_desc_index and feature_desc. 
+		 * Where feature_desc contains the distances and feature_desc_index contains the associated marker scene index.
+		 * */
 		void computeDescriptors();
 		
+		/* Documentation: Descriptor's Elements Arrangement
+		 * Prior to performing a match, the elements withina  descriptor needs to be sorted according to magnitude, from smallest to largest.
+		 * The Insertion sort algorithm is used to perform this task.
+		 * */
 		void arrangeDescriptorsElements();
 		
 		void clearPixelPoints();
@@ -93,7 +113,12 @@ class DataManagement
 		
 		bool detectMarkers(int blur_param_, int hsv_target_, int hsv_threshold_ , int contour_area_min_, int contour_area_max, double contour_ratio_min_, double contour_ratio_max_, bool aruco_detection_);
 		
-		// Circular Marker Detection Function
+		/* Documenation: Circular Marker Detection
+		 * This function receives an image and processes it to determine if circular markers are located within the scene.
+		 * Markers located would have its pixel position recorded.
+		 * If there are three or more markers located within a scene, the pixel_point_ready parameter would be set to true, enabling
+		 * the computation of descriptors and subsequent functions associated with descriptors.
+		 * */
 		bool circleEstimation (cv::Mat& input_image, int blur_param_, int hsv_target_, int hsv_threshold_ , int contour_area_min_, int contour_area_max_,  double contour_ratio_min_, double contour_ratio_max_){
 			
 			int marker_count_ = 0;
@@ -402,7 +427,7 @@ bool DataManagement::getMatchingDescriptor(){
 			std::cout << "Descriptor Match Found" << std::endl;
 			correspondence_point_.swap(match_point_);
 			correspondence_database_.swap(match_database_);
-			//~ labelMarkers();
+			labelMarkers();
 		}else{
 			std::cout << "No Match Found" << std::endl;
 		}
