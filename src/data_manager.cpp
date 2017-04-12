@@ -70,9 +70,10 @@ class DataManagement
 		
 		void computeDescriptors();
 		
-		void arrangeDescriptors();
+		void arrangeDescriptorsElements();
 		
 		void clearPixelPoints();
+		void clearDescriptors();
 		
 		bool statusTransform();
 		
@@ -129,7 +130,7 @@ class DataManagement
 						
 						//#7 Compute Centroid and give temporary ID
 						if(marker_confirmed_){
-							std::cout << "Id: " << marker_count_ << ", area: " << contour_area << std::endl;
+							//~ std::cout << "Id: " << marker_count_ << ", area: " << contour_area << std::endl;
 							std::vector<std::vector<cv::Point> > con = std::vector<std::vector<cv::Point> >(1, contours[i]);
 							cv::Moments m = cv::moments(con[0], false);
 							cv::Point2f p = cv::Point2f((int)(m.m10/m.m00) , (int)(m.m01/m.m00));
@@ -148,7 +149,7 @@ class DataManagement
 			//~ cv::imwrite(package_path_ + "/pose_estimation_frames/contour_marked_image.png", input_image);
 			
 			//#8 Return True if sufficient markers are present to make pose estimate
-			if (marker_count_ >= 1){
+			if (marker_count_ >= 3){
 				setPixelPointReady();
 				return true;
 			}else{
@@ -241,7 +242,7 @@ void DataManagement::loadCloud(pcl::PointCloud<PointType>::Ptr &c){
 
 // Also computes corresponding cloud index with the given pixel position
 void DataManagement::loadPixelPoint(cv::Point2f p, int id){
-	std::cout << "Loading pixel point " << index_count << " . x: " << p.x << ", y: " << p.y << std::endl;
+	//~ std::cout << "Loading pixel point " << index_count << " . x: " << p.x << ", y: " << p.y << std::endl;
 	int index_temp = (p.y) * frame_width + p.x;
 	cloud_index.push_back(index_temp);
 	point_id.push_back(id);
@@ -290,7 +291,7 @@ bool DataManagement::getPixelPoint(cv::Point2f &p){
 bool DataManagement::getPointCloudIndex(int &index, int n){
 	if (parameters_ready && pixel_point_ready){
 		index = cloud_index[n];
-		std::cout << "Point cloud index returned: " << index << std::endl;
+		//~ std::cout << "Point cloud index returned: " << index << std::endl;
 		return true;
 	}
 	else{
@@ -300,7 +301,7 @@ bool DataManagement::getPointCloudIndex(int &index, int n){
 
 bool DataManagement::getPointIndexSize(int &n){
 		n = point_id.size();
-		std::cout << "Point index size returned: " << n << std::endl;
+		//~ std::cout << "Point index size returned: " << n << std::endl;
 		if (n>0){
 			return true;
 		}
@@ -325,7 +326,7 @@ bool DataManagement::getImageLoadStatus(){
 void DataManagement::computeDescriptors(){
 	if(pixel_point_ready && cloud_ready){
 		int n = point_id.size();
-		std::cout << "Computing descriptor, n: " << n << std::endl;
+		//~ std::cout << "Computing descriptor, n: " << n << std::endl;
 		for (int i = 0 ; i < n ; i++){
 			std::vector<float> temp_desc;
 			std::vector<int> temp_index;
@@ -343,8 +344,8 @@ void DataManagement::computeDescriptors(){
 			feature_desc.push_back(temp_desc);
 		}
 		
-		printDescriptors();
-		std::cout << "Finished computing descriptors... " << std::endl;
+		//~ printDescriptors();
+		//~ std::cout << "Finished computing descriptors... " << std::endl;
 	}
 	else if(!pixel_point_ready){
 		std::cout << "Pixel points not ready, cannot compute descriptor" << std::endl;
@@ -354,9 +355,9 @@ void DataManagement::computeDescriptors(){
 	}
 }
 
-void DataManagement::arrangeDescriptors(){
+void DataManagement::arrangeDescriptorsElements(){
 	
-	std::cout << std::endl << "Sorting descriptors according to magnitude..." << std::endl;
+	//~ std::cout << std::endl << "Sorting descriptors according to magnitude..." << std::endl;
 	for (int n=0; n < feature_desc.size() ; n++){
 		bool lowest_score = true;
 		int front_of_index;
@@ -389,7 +390,7 @@ void DataManagement::arrangeDescriptors(){
 	}
 	
 	printDescriptors();
-	std::cout << "Descriptors Sorted..." << std::endl;
+	//~ std::cout << "Descriptors Sorted..." << std::endl;
 }
 
 void DataManagement::clearPixelPoints(){
@@ -397,6 +398,12 @@ void DataManagement::clearPixelPoints(){
 	std::vector <int> ().swap(cloud_index);
 	index_count = 0;
 	pixel_point_ready = false;
+}
+
+void DataManagement::clearDescriptors(){
+	std::vector < std::vector < float > > ().swap(feature_desc);
+	std::vector < std::vector < int > > ().swap(feature_desc_index);
+	//~ std::cout << "Descriptors cleared" << std::endl;
 }
 
 bool DataManagement::statusTransform(){
