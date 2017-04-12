@@ -31,11 +31,15 @@ class DataManagement
 		cv::Mat dist_coeffs;
 		cv::Mat frame;
 		float aruco_size = 0.08/2;
+		float desc_match_thresh_ = 0.005;
 		cv::Ptr<cv::aruco::Dictionary> dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
 		std::vector <int> point_id;
 		std::vector <int> cloud_index;
-		std::vector < std::vector < float > > feature_desc;
-		std::vector < std::vector < int > > feature_desc_index;
+		std::vector <int> correspondence_point_;
+		std::vector <int> correspondence_database_;
+		std::vector < std::vector < float > > feature_desc, database_desc_, test_desc_;
+		std::vector < std::vector < int > > feature_desc_index, database_desc_index_, test_desc_index_;
+		std::vector <cv::Point2f> pixel_position_;
 		std::string package_path_;
 		int index_count = 0;
 		int frame_height, frame_width;
@@ -46,6 +50,7 @@ class DataManagement
 		bool reading_pixel_point = false;
 		bool parameters_ready = false;
 		bool camera_parameters_ready = false;
+		bool database_desc_ready_ = false;
 		pcl::PointCloud<PointType>::Ptr cloud;
 		
 	public:
@@ -58,6 +63,9 @@ class DataManagement
 		void loadFrame(cv::Mat f);
 		void loadCloud(pcl::PointCloud<PointType>::Ptr &c);
 		void loadPixelPoint(cv::Point2f p, int id);
+		void loadDatabaseDescriptors(std::vector < std::vector < int > > index_vector, std::vector < std::vector < float > > element_vector);
+		// To be deleted
+		void loadTestDescriptors();
 		
 		void getTransform(cv::Mat& t, cv::Mat& r);
 		bool getFrame(cv::Mat& f);
@@ -67,6 +75,7 @@ class DataManagement
 		bool getPointIndexSize(int &n);
 		bool getCloudAndImageLoadStatus();
 		bool getImageLoadStatus();
+		bool getMatchingDescriptor();
 		
 		void computeDescriptors();
 		
@@ -77,7 +86,10 @@ class DataManagement
 		
 		bool statusTransform();
 		
+		void labelMarkers();
+		
 		void printDescriptors();
+		void printDatabaseDescriptors();
 		
 		bool detectMarkers(int blur_param_, int hsv_target_, int hsv_threshold_ , int contour_area_min_, int contour_area_max, double contour_ratio_min_, double contour_ratio_max_, bool aruco_detection_);
 		
@@ -246,8 +258,30 @@ void DataManagement::loadPixelPoint(cv::Point2f p, int id){
 	int index_temp = (p.y) * frame_width + p.x;
 	cloud_index.push_back(index_temp);
 	point_id.push_back(id);
-	pixel_point_ready = true;
+	pixel_position_.push_back(p);
 	index_count++;
+}
+
+void DataManagement::loadDatabaseDescriptors(std::vector < std::vector < int > > index_vector, std::vector < std::vector < float > > element_vector){
+	database_desc_index_.swap(index_vector);
+	database_desc_.swap(element_vector);
+	database_desc_ready_ = true;
+	std::cout << "Database Descriptors Loaded" << std::endl;
+	printDatabaseDescriptors();
+}
+
+void DataManagement::loadTestDescriptors(){
+	std::vector < int > index;
+	std::vector < float > desc;
+	
+	index.push_back(1);
+	index.push_back(2);
+	desc.push_back(0.08);
+	desc.push_back(0.2);
+	test_desc_.push_back(desc);
+	test_desc_index_.push_back(index);
+	loadDatabaseDescriptors(test_desc_index_, test_desc_);
+	
 }
 
 void DataManagement::getTransform(cv::Mat& t, cv::Mat& r){
@@ -323,10 +357,67 @@ bool DataManagement::getImageLoadStatus(){
 	return image_ready;
 }
 
+bool DataManagement::getMatchingDescriptor(){
+	if (pixel_point_ready && database_desc_ready_){
+		std::vector < int > match_point_;
+		std::vector < int > match_database_;
+		bool match_found_ = false;
+		for (int n=0; n<feature_desc_index.size(); n++){
+			int match_count_ = 0;
+			for (int m=0; m<database_desc_index_.size(); m++){
+				std::cout << "Checking feature: " << n << " with Database: " << m << std::endl;
+				std::vector < int > ().swap(match_point_);
+				std::vector < int > ().swap(match_database_);
+				match_point_.push_back(n);
+				match_database_.push_back(m);
+				int j = 0;
+				int count = 0;
+				for (int i=0; i< feature_desc_index[n].size() ; i++){
+					if ((feature_desc[n][i]>=database_desc_[m][j] - desc_match_thresh_) && (feature_desc[n][i]<=database_desc_[m][j] + desc_match_thresh_)){
+						std::cout << "Element Matched" << std::endl;
+						match_point_.push_back(feature_desc_index[n][i]);
+						match_database_.push_back(database_desc_index_[m][j]);
+						j++;
+						count++;
+					}
+					else if (feature_desc[n][i] >= database_desc_[m][j] + desc_match_thresh_){
+						std::cout << "Next database element" << std::endl;
+						j++;
+					}
+					else{
+						std::cout << "Not a match" << std::endl;
+						break;
+					}
+				}
+				if (count == 2){
+					std::cout << "Match Found" << std::endl;
+					match_found_ = true;
+					break;
+				}
+			}
+			if (match_found_)
+				break;
+		}
+		if (match_found_){
+			std::cout << "Descriptor Match Found" << std::endl;
+			correspondence_point_.swap(match_point_);
+			correspondence_database_.swap(match_database_);
+			//~ labelMarkers();
+		}else{
+			std::cout << "No Match Found" << std::endl;
+		}
+	}else if(!pixel_point_ready){
+		//~ std::cout << "Pixel points not ready, cannot determine match" << std::endl;
+	}
+	else if(!database_desc_ready_){
+		//~ std::cout << "Database Descriptors not loaded, cannot determine match" << std::endl;
+	}
+}
+
 void DataManagement::computeDescriptors(){
 	if(pixel_point_ready && cloud_ready){
 		int n = point_id.size();
-		//~ std::cout << "Computing descriptor, n: " << n << std::endl;
+		//~ std::cout << "Number of features detected: " << n << std::endl;
 		for (int i = 0 ; i < n ; i++){
 			std::vector<float> temp_desc;
 			std::vector<int> temp_index;
@@ -348,54 +439,67 @@ void DataManagement::computeDescriptors(){
 		//~ std::cout << "Finished computing descriptors... " << std::endl;
 	}
 	else if(!pixel_point_ready){
-		std::cout << "Pixel points not ready, cannot compute descriptor" << std::endl;
+		//~ std::cout << "Pixel points not ready, cannot compute descriptor" << std::endl;
 	}
 	else if(!cloud_ready){
-		std::cout << "Point cloud not ready, cannot compute descriptor" << std::endl;
+		//~ std::cout << "Point cloud not ready, cannot compute descriptor" << std::endl;
 	}
 }
 
 void DataManagement::arrangeDescriptorsElements(){
-	
-	//~ std::cout << std::endl << "Sorting descriptors according to magnitude..." << std::endl;
-	for (int n=0; n < feature_desc.size() ; n++){
-		bool lowest_score = true;
-		int front_of_index;
-		std::vector <float> sorted_desc;
-		std::vector <int> sorted_index;
-		sorted_desc.push_back(feature_desc[n][0]);
-		sorted_index.push_back(feature_desc_index[n][0]);
-		
-		for (int i=1; i<feature_desc[n].size(); i++){    
-			lowest_score = true;  
-			for (int  j=0 ; j < sorted_desc.size() ; j++){   
-				if(feature_desc[n][i] <= sorted_desc[j]){
-					front_of_index = j;
-					lowest_score = false;
-					break;
-				}       
+	 
+	if(pixel_point_ready && cloud_ready){
+		//~ std::cout << std::endl << "Sorting descriptors according to magnitude..." << std::endl;
+		for (int n=0; n < feature_desc.size() ; n++){
+			//~ std::cout << "n: " << n << std::endl;
+			bool lowest_score = true;
+			int front_of_index;
+			std::vector <float> sorted_desc;
+			std::vector <int> sorted_index;
+			//~ std::cout << "Pushback first index" << std::endl;
+			sorted_desc.push_back(feature_desc[n][0]);
+			sorted_index.push_back(feature_desc_index[n][0]);
+			for (int i=1; i<feature_desc[n].size(); i++){    
+				//~ std::cout << "i: " << i << std::endl;
+				lowest_score = true;  
+				for (int  j=0 ; j < sorted_desc.size() ; j++){   
+					//~ std::cout << "j: " << j << std::endl;
+					if(feature_desc[n][i] <= sorted_desc[j]){
+						//~ std::cout << "Smaller than index j" << std::endl;
+						front_of_index = j;
+						lowest_score = false;
+						break;
+					}       
+				}
+				if (lowest_score==false){
+					//~ std::cout << "Not lowest score" << std::endl;
+					sorted_desc.insert(sorted_desc.begin() + front_of_index, feature_desc[n][i]);     
+					sorted_index.insert(sorted_index.begin() + front_of_index, feature_desc_index[n][i]);           
+				}
+				else if(lowest_score==true){
+					//~ std::cout << "Lowest score" << std::endl;
+					sorted_desc.push_back(feature_desc[n][i]);
+					sorted_index.push_back(feature_desc_index[n][i]);
+				}
 			}
-			if (lowest_score==false){
-				sorted_desc.insert(sorted_desc.begin() + front_of_index, feature_desc[n][i]);     
-				sorted_index.insert(sorted_index.begin() + front_of_index, feature_desc_index[n][i]);           
-			}
-			else if(lowest_score==true){
-				sorted_desc.push_back(feature_desc[n][i]);
-				sorted_index.push_back(feature_desc_index[n][i]);
-			}
+			
+			feature_desc_index[n].swap(sorted_index);
+			feature_desc[n].swap(sorted_desc);
+			//~ std::cout << "Descriptors Sorted..." << std::endl;
 		}
-		
-		feature_desc_index[n].swap(sorted_index);
-		feature_desc[n].swap(sorted_desc);
+		printDescriptors();
+	}else if(!pixel_point_ready){
+		//~ std::cout << "Pixel points not ready, cannot compute descriptor" << std::endl;
 	}
-	
-	printDescriptors();
-	//~ std::cout << "Descriptors Sorted..." << std::endl;
+	else if(!cloud_ready){
+		//~ std::cout << "Point cloud not ready, cannot compute descriptor" << std::endl;
+	}
 }
 
 void DataManagement::clearPixelPoints(){
 	std::vector <int> ().swap(point_id);
 	std::vector <int> ().swap(cloud_index);
+	std::vector <cv::Point2f> ().swap(pixel_position_);
 	index_count = 0;
 	pixel_point_ready = false;
 }
@@ -410,11 +514,35 @@ bool DataManagement::statusTransform(){
 	return transformation_ready;
 }
 
+void DataManagement::labelMarkers(){
+	for(int i=0; i<correspondence_point_.size(); i++){
+		for(int j=0; j<point_id.size(); j++){
+			if(point_id[j]==correspondence_point_[i]){
+				std::stringstream convert;
+				convert << correspondence_database_[i];
+				std::string s;
+				s = convert.str();
+				cv::putText(frame, s, pixel_position_[j], CV_FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255), 2, 8, false);
+			}
+		}
+	}
+}
+
 void DataManagement::printDescriptors(){
 	for( int i = 0; i < point_id.size() ; i++){
 		std::cout << " Descriptor (" << point_id[i] << ") : ";
 		for (int j = 0 ; j < feature_desc[i].size() ; j++){
 			std::cout << feature_desc[i][j] << "(" << feature_desc_index[i][j] << "), ";
+		}
+		std::cout << std::endl;
+	}
+}
+
+void DataManagement::printDatabaseDescriptors(){
+	for( int i = 0; i < database_desc_index_.size() ; i++){
+		std::cout << " Descriptor (" << i << ") : ";
+		for (int j = 0 ; j < database_desc_[i].size() ; j++){
+			std::cout << database_desc_[i][j] << "(" << database_desc_index_[i][j] << "), ";
 		}
 		std::cout << std::endl;
 	}

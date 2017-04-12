@@ -226,6 +226,9 @@ void *start_viewer(void *threadid){
 		if(dm.getCloudAndImageLoadStatus()){
 			next_frame_ = false;
 			dm.detectMarkers(blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max_, contour_ratio_min_, contour_ratio_max_, aruco_detection_);
+			dm.computeDescriptors();
+			dm.arrangeDescriptorsElements();
+			dm.getMatchingDescriptor();
 			retrieve_image_ = dm.getFrame(image_display_);
 			retrieve_cloud_ = dm.getCloud(cloud);
 			next_frame_ = true;
@@ -268,6 +271,8 @@ void *start_viewer(void *threadid){
 			viewer.spinOnce();
 		}
 		
+		dm.clearPixelPoints();
+		dm.clearDescriptors();
 		retrieve_cloud_ = false;
 		retrieve_image_ = false;
 		retrieve_index_ = false;
@@ -302,6 +307,8 @@ int main (int argc, char** argv){
   loadCalibrationMatrix("kinect_sd");
 	focal_length = camera_matrix.at<double>(0,0);
 	dm.setParameters(2*camera_matrix.at<double>(1,2), 2*camera_matrix.at<double>(0,2), package_path_);
+	dm.setCameraParameters(camera_matrix, dist_coeffs);
+	dm.loadTestDescriptors();
 	
   // DEBUGGING
   std::cout << "Package Path: " << package_path_ << std::endl;
@@ -319,9 +326,6 @@ int main (int argc, char** argv){
 		std::cout << dist_coeffs.at<double>(i,0) << " ";
 	}
 	std::cout << "]" << std::endl;
-	
-	// LOAD CAMERA PARAMETERS
-	dm.setCameraParameters(camera_matrix, dist_coeffs);
 	
   // THREADING
   pthread_t thread[3];
