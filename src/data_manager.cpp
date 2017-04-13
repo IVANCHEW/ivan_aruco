@@ -75,6 +75,8 @@ class DataManagement
 		bool getPointIndexSize(int &n);
 		bool getCloudAndImageLoadStatus();
 		bool getImageLoadStatus();
+		bool getDatabaseDescriptor(int n, std::vector<float> &v);
+		bool getCorrespondence(std::vector<int> &scene_corrs, std::vector<int> &database_corrs);
 		
 		/* Documentation: Determining Matching Descriptors
 		 * Determines if there are matching descriptors between a scene and those stored in a database.
@@ -295,6 +297,7 @@ void DataManagement::loadDatabaseDescriptors(std::vector < std::vector < int > >
 	printDatabaseDescriptors();
 }
 
+// To be deleted
 void DataManagement::loadTestDescriptors(){
 	std::vector < int > index;
 	std::vector < float > desc;
@@ -306,7 +309,6 @@ void DataManagement::loadTestDescriptors(){
 	test_desc_.push_back(desc);
 	test_desc_index_.push_back(index);
 	loadDatabaseDescriptors(test_desc_index_, test_desc_);
-	
 }
 
 void DataManagement::getTransform(cv::Mat& t, cv::Mat& r){
@@ -359,12 +361,13 @@ bool DataManagement::getPointCloudIndex(int &index, int n){
 }
 
 bool DataManagement::getPointIndexSize(int &n){
-		n = point_id.size();
 		//~ std::cout << "Point index size returned: " << n << std::endl;
-		if (n>0){
+		if (point_id.size()>0 && pixel_point_ready){
+			n = point_id.size();
 			return true;
 		}
 		else{
+			n=0;
 			return false;
 		}
 }
@@ -382,6 +385,27 @@ bool DataManagement::getImageLoadStatus(){
 	return image_ready;
 }
 
+// Not used
+bool DataManagement::getDatabaseDescriptor(int n, std::vector<float> &v){
+	if(n < database_desc_.size()){
+		v = database_desc_[n];
+		return true;
+	}else{
+		return false;
+	}
+}
+
+bool DataManagement::getCorrespondence(std::vector<int> &scene_corrs, std::vector<int> &database_corrs){
+	if (correspondence_point_.size() > 0){
+		scene_corrs = correspondence_point_;
+		database_corrs = correspondence_database_;
+		return true;
+	}
+	else{
+		return false;
+	}
+}
+
 bool DataManagement::getMatchingDescriptor(){
 	if (pixel_point_ready && database_desc_ready_){
 		std::vector < int > match_point_;
@@ -390,7 +414,7 @@ bool DataManagement::getMatchingDescriptor(){
 		for (int n=0; n<feature_desc_index.size(); n++){
 			int match_count_ = 0;
 			for (int m=0; m<database_desc_index_.size(); m++){
-				std::cout << "Checking feature: " << n << " with Database: " << m << std::endl;
+				//~ std::cout << "Checking feature: " << n << " with Database: " << m << std::endl;
 				std::vector < int > ().swap(match_point_);
 				std::vector < int > ().swap(match_database_);
 				match_point_.push_back(n);
@@ -399,23 +423,23 @@ bool DataManagement::getMatchingDescriptor(){
 				int count = 0;
 				for (int i=0; i< feature_desc_index[n].size() ; i++){
 					if ((feature_desc[n][i]>=database_desc_[m][j] - desc_match_thresh_) && (feature_desc[n][i]<=database_desc_[m][j] + desc_match_thresh_)){
-						std::cout << "Element Matched" << std::endl;
+						//~ std::cout << "Element Matched" << std::endl;
 						match_point_.push_back(feature_desc_index[n][i]);
 						match_database_.push_back(database_desc_index_[m][j]);
 						j++;
 						count++;
 					}
 					else if (feature_desc[n][i] >= database_desc_[m][j] + desc_match_thresh_){
-						std::cout << "Next database element" << std::endl;
+						//~ std::cout << "Next database element" << std::endl;
 						j++;
 					}
 					else{
-						std::cout << "Not a match" << std::endl;
+						//~ std::cout << "Not a match" << std::endl;
 						break;
 					}
 				}
 				if (count == 2){
-					std::cout << "Match Found" << std::endl;
+					//~ std::cout << "Match Found" << std::endl;
 					match_found_ = true;
 					break;
 				}
@@ -424,12 +448,12 @@ bool DataManagement::getMatchingDescriptor(){
 				break;
 		}
 		if (match_found_){
-			std::cout << "Descriptor Match Found" << std::endl;
+			//~ std::cout << "Descriptor Match Found" << std::endl;
 			correspondence_point_.swap(match_point_);
 			correspondence_database_.swap(match_database_);
 			labelMarkers();
 		}else{
-			std::cout << "No Match Found" << std::endl;
+			//~ std::cout << "No Match Found" << std::endl;
 		}
 	}else if(!pixel_point_ready){
 		//~ std::cout << "Pixel points not ready, cannot determine match" << std::endl;
@@ -512,7 +536,7 @@ void DataManagement::arrangeDescriptorsElements(){
 			feature_desc[n].swap(sorted_desc);
 			//~ std::cout << "Descriptors Sorted..." << std::endl;
 		}
-		printDescriptors();
+		//~ printDescriptors();
 	}else if(!pixel_point_ready){
 		//~ std::cout << "Pixel points not ready, cannot compute descriptor" << std::endl;
 	}

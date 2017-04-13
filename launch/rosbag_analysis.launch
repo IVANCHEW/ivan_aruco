@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <launch>
-  <arg name="debug"  default="False" />
+  <arg name="debug"  					default="False" />
   <arg name="bag_name_"  			default="recorder_save.bag" />
   <arg name="folder_name_"  	default="/kinect_record_saves/" />
   <arg name="single_frame_"  	default="False" />
@@ -15,6 +15,9 @@
   <arg name="contour_ratio_min_"	default="6" />
   <arg name="contour_ratio_max_"	default="9" />
   <arg name="aruco_detection_" 		default="False" />
+  
+  <arg name="gc_size_"				default="0.05"/>
+  <arg name="gc_threshold_"		default="3"/>
   
   <node name="rosbag_replay" pkg="ivan_aruco" type="rosbag_replay" output="screen"> 
     <param name="debug"           	type="bool"   	value="$(arg debug)"/> 
@@ -31,9 +34,12 @@
 		<param name="hsv_threshold_"   			type="int"   	value="$(arg hsv_threshold_)"/> 
 		<param name="contour_area_min_"    	type="int"   	value="$(arg contour_area_min_)"/> 
 		<param name="contour_area_max_"     type="int"   	value="$(arg contour_area_max_)"/> 
+		<param name="gc_threshold_"     		type="int"   	value="$(arg gc_threshold_)"/> 
 		<param name="contour_ratio_min_"    type="double"   	value="$(arg contour_ratio_min_)"/> 
 		<param name="contour_ratio_max_"    type="double"   	value="$(arg contour_ratio_max_)"/> 
+		<param name="debug"           			type="bool"   	value="$(arg debug)"/> 
 		<param name="aruco_detection_"    	type="bool"   		value="$(arg aruco_detection_)"/> 
+		<param name="gc_size_"							type="double"			value="$(arg gc_size_)"/>
 	</node>
 	
 </launch>

@@ -54,6 +54,7 @@ std::string cloud_topic_ = "/rosbag_replay/cloud";
 std::string image_topic_ = "/rosbag_replay/image";
 bool stop_all_ = false;
 bool next_frame_ = true;
+bool debug_;
 std::string package_path_;
 std::string yaml_path_;
 
@@ -71,6 +72,26 @@ int contour_area_max_;
 double contour_ratio_min_;
 double contour_ratio_max_;
 bool aruco_detection_;
+
+// For Pose Estimation
+int gc_threshold_;
+float gc_size_;
+
+void generateTestModelCloud(pcl::PointCloud<PointType>::Ptr &cloud){
+	cloud->width = 3;
+	cloud->height = 1;
+	cloud->is_dense = false;
+	cloud->points.resize(cloud->width * cloud->height);
+	
+	for(int i=0; i<3; i++){
+		cloud->points[i].x = 0;
+		cloud->points[i].y = 0;
+		cloud->points[i].z = 0;
+	}
+	
+	cloud->points[1].x = 0.08;
+	cloud->points[2].y = 0.2;
+}
 
 static void calcBoardCornerPositions(cv::Size boardSize, float squareSize, std::vector<cv::Point3f>& corners, std::string patternType){
     corners.clear();
@@ -206,12 +227,21 @@ void *start_viewer(void *threadid){
   pcl::visualization::PCLVisualizer viewer("Kinect Viewer");
   pcl::PointCloud<PointType>::Ptr cloud (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr highlight_cloud (new pcl::PointCloud<PointType> ());
+  pcl::PointCloud<PointType>::Ptr model_cloud_ (new pcl::PointCloud<PointType> ());
+  pcl::PointCloud<PointType>::Ptr transformed_cloud_ (new pcl::PointCloud<PointType> ());
   pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler (highlight_cloud, 255, 0, 0);
+  pcl::visualization::PointCloudColorHandlerCustom<PointType> model_color_handler_ (model_cloud_, 0, 255, 0);
+  pcl::visualization::PointCloudColorHandlerCustom<PointType> transformed_color_handler_ (model_cloud_, 0, 0, 255);
   bool first_cloud_ = true;
+  bool model_cloud_ready_ = false;
   bool retrieve_cloud_ = false;
   bool retrieve_index_ = false;
   int highlight_size_;
   int cloud_index;
+  
+  //TO BE DELETED
+  generateTestModelCloud(model_cloud_);
+  model_cloud_ready_ = true;
   
   // VIEWER LOOP
   while (!stop_all_){
@@ -246,12 +276,22 @@ void *start_viewer(void *threadid){
 		
 		// DISPLAY CLOUD
 		if (retrieve_cloud_){
+			
+			std::vector<int> correspondence_point_, correspondence_database_;
+			
 			if (first_cloud_){
 				std::cout << "Added new cloud to viewer" << std::endl;
 				viewer.addPointCloud(cloud, "cloud");
 				highlight_cloud->points.push_back(cloud->points[0]);
 				viewer.addPointCloud (highlight_cloud, highlight_color_handler, "Highlight Cloud");
 				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "Highlight Cloud");
+				if(model_cloud_ready_){
+					viewer.addPointCloud(model_cloud_, model_color_handler_, "model");
+					viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "model");
+					transformed_cloud_->points.push_back(cloud->points[0]);
+					viewer.addPointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
+					viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "transformed");
+				}
 				first_cloud_ = false;
 			}
 			else{
@@ -264,14 +304,53 @@ void *start_viewer(void *threadid){
 						dm.getPointCloudIndex(cloud_index, n);
 						highlight_cloud->points.push_back(cloud->points[cloud_index]);
 					}
+					//~ std::cout << "Retrieving correspoding points" << std::endl;
+					dm.getCorrespondence(correspondence_point_, correspondence_database_);
 				}
 				viewer.updatePointCloud(highlight_cloud, highlight_color_handler, "Highlight Cloud");
-				dm.clearPixelPoints();
+			}
+			
+			// POSE ESTIMATION
+			if(highlight_size_>=3){
+				ROS_DEBUG("Begin Pose Estimation");
+				
+				//STEP 1: SET CORRESPONDENCE
+				pcl::CorrespondencesPtr model_scene_corrs (new pcl::Correspondences ());
+				for (int i=0; i<correspondence_point_.size(); i++){
+					pcl::Correspondence corr (correspondence_database_[i], correspondence_point_[i], 0);
+					ROS_DEBUG_STREAM("Scene: " << correspondence_point_[i] << " Model: " << correspondence_database_[i]);
+					model_scene_corrs->push_back (corr);
+				}
+				
+				//STEP 2: PERFORM GEOMETRIC CONSISTENCY GROUPING
+				std::vector<Eigen::Matrix4f, Eigen::aligned_allocator<Eigen::Matrix4f> > rototranslations;
+				std::vector<pcl::Correspondences> clustered_corrs;  
+				pcl::GeometricConsistencyGrouping<PointType, PointType> gc_clusterer;
+					gc_clusterer.setGCSize (gc_size_);
+					gc_clusterer.setGCThreshold (gc_threshold_);
+					gc_clusterer.setInputCloud (model_cloud_);
+					gc_clusterer.setSceneCloud (highlight_cloud);
+					gc_clusterer.setModelSceneCorrespondences (model_scene_corrs);
+					gc_clusterer.recognize (rototranslations, clustered_corrs);
+
+				ROS_DEBUG_STREAM("Model instances found: " << rototranslations.size ());        
+				if (rototranslations.size ()== 0){
+					ROS_DEBUG("No instance found");
+				}
+				else{
+					// TEST: RETRIEVE FIRST ESTIMATE
+					ROS_DEBUG("Visualising estimated pose");
+					Eigen::Matrix4f estimated_pose_ = rototranslations[0].block<4,4>(0,0);
+					transformed_cloud_->points.clear();
+					pcl::transformPointCloud (*model_cloud_, *transformed_cloud_, estimated_pose_);
+					viewer.updatePointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
+				}
+				
+			}else{
+				ROS_DEBUG("Insufficient points to perform pose estimation");	
 			}
 			viewer.spinOnce();
 		}
-		
-		// POSE ESTIMATION
 		
 		dm.clearPixelPoints();
 		dm.clearDescriptors();
@@ -303,6 +382,22 @@ int main (int argc, char** argv){
   nh_private_.getParam("contour_ratio_max_", contour_ratio_max_);
   nh_private_.getParam("aruco_detection_", aruco_detection_);
   
+  nh_private_.getParam("gc_size_", gc_size_);
+  nh_private_.getParam("gc_threshold_", gc_threshold_);
+  nh_private_.getParam("debug", debug_);
+  if (debug_)
+	{
+		std::cout << "Debug Mode ON" << std::endl;
+		pcl::console::setVerbosityLevel(pcl::console::L_INFO);
+		ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Debug);
+	}
+	else
+	{
+		std::cout << "Debug Mode OFF" << std::endl;
+		pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
+		ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Info);
+	}
+	
   // CAMERA CALIBRATION
 	camera_matrix = cv::Mat::eye(3, 3, CV_64F);
 	dist_coeffs = cv::Mat::zeros(8, 1, CV_64F);
