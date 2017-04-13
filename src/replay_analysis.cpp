@@ -271,6 +271,8 @@ void *start_viewer(void *threadid){
 			viewer.spinOnce();
 		}
 		
+		// POSE ESTIMATION
+		
 		dm.clearPixelPoints();
 		dm.clearDescriptors();
 		retrieve_cloud_ = false;

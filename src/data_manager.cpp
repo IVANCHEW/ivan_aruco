@@ -177,7 +177,7 @@ class DataManagement
 							convert << marker_count_;
 							std::string s;
 							s = convert.str();
-							cv::putText(input_image, s, p, CV_FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255), 2, 8, false);
+							//~ cv::putText(input_image, s, p, CV_FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255), 2, 8, false);
 							loadPixelPoint(p, marker_count_);
 							marker_count_++;
 						}
