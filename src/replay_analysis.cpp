@@ -76,9 +76,10 @@ bool aruco_detection_;
 // For Pose Estimation
 int gc_threshold_;
 float gc_size_;
+float desc_match_thresh_;
 
 void generateTestModelCloud(pcl::PointCloud<PointType>::Ptr &cloud){
-	cloud->width = 3;
+	cloud->width = 6;
 	cloud->height = 1;
 	cloud->is_dense = false;
 	cloud->points.resize(cloud->width * cloud->height);
@@ -91,6 +92,10 @@ void generateTestModelCloud(pcl::PointCloud<PointType>::Ptr &cloud){
 	
 	cloud->points[1].x = 0.08;
 	cloud->points[2].y = 0.2;
+	cloud->points[3].z = 0.3;
+	cloud->points[4].x = 0.1;
+	cloud->points[4].y = 0.2;
+	cloud->points[5].x = 0.4;
 }
 
 static void calcBoardCornerPositions(cv::Size boardSize, float squareSize, std::vector<cv::Point3f>& corners, std::string patternType){
@@ -225,6 +230,8 @@ void *start_viewer(void *threadid){
   
   // POINT CLOUD VIEWER PARAMETER
   pcl::visualization::PCLVisualizer viewer("Kinect Viewer");
+  viewer.setCameraPosition(0.0308721, 0.0322514, -1.05573, 0.0785146, -0.996516, -0.0281465);
+  viewer.setPosition(49, 540);
   pcl::PointCloud<PointType>::Ptr cloud (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr highlight_cloud (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr model_cloud_ (new pcl::PointCloud<PointType> ());
@@ -241,6 +248,8 @@ void *start_viewer(void *threadid){
   
   //TO BE DELETED
   generateTestModelCloud(model_cloud_);
+  std::cout << "Loading database descriptor" << std::endl;
+  dm.loadDatabaseDescriptors(model_cloud_);
   model_cloud_ready_ = true;
   
   // VIEWER LOOP
@@ -257,7 +266,6 @@ void *start_viewer(void *threadid){
 			next_frame_ = false;
 			dm.detectMarkers(blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max_, contour_ratio_min_, contour_ratio_max_, aruco_detection_);
 			dm.computeDescriptors();
-			dm.arrangeDescriptorsElements();
 			dm.getMatchingDescriptor();
 			retrieve_image_ = dm.getFrame(image_display_);
 			retrieve_cloud_ = dm.getCloud(cloud);
@@ -296,18 +304,13 @@ void *start_viewer(void *threadid){
 			}
 			else{
 				viewer.updatePointCloud(cloud, "cloud");
-				highlight_cloud->points.clear();
+				if(dm.getHighlightCloud(highlight_cloud)){
+					viewer.updatePointCloud(highlight_cloud, highlight_color_handler, "Highlight Cloud");
+				}
 				retrieve_index_ = dm.getPointIndexSize(highlight_size_);
 				if (retrieve_index_){
-					//Display distinguished key point
-					for (int n=0 ; n < highlight_size_ ; n++){
-						dm.getPointCloudIndex(cloud_index, n);
-						highlight_cloud->points.push_back(cloud->points[cloud_index]);
-					}
-					//~ std::cout << "Retrieving correspoding points" << std::endl;
 					dm.getCorrespondence(correspondence_point_, correspondence_database_);
 				}
-				viewer.updatePointCloud(highlight_cloud, highlight_color_handler, "Highlight Cloud");
 			}
 			
 			// POSE ESTIMATION
@@ -350,10 +353,9 @@ void *start_viewer(void *threadid){
 				ROS_DEBUG("Insufficient points to perform pose estimation");	
 			}
 			viewer.spinOnce();
+			dm.clearPixelPoints();
+			dm.clearDescriptors();
 		}
-		
-		dm.clearPixelPoints();
-		dm.clearDescriptors();
 		retrieve_cloud_ = false;
 		retrieve_image_ = false;
 		retrieve_index_ = false;
@@ -361,8 +363,6 @@ void *start_viewer(void *threadid){
 	std::cout << "Exiting Image Viewer Thread" << std::endl;
 	pthread_exit(NULL);
 }
-
-
 
 int main (int argc, char** argv){
   std::cout << std::endl << "Replay Analysis Package" << std::endl;
@@ -381,6 +381,8 @@ int main (int argc, char** argv){
   nh_private_.getParam("contour_ratio_min_", contour_ratio_min_);
   nh_private_.getParam("contour_ratio_max_", contour_ratio_max_);
   nh_private_.getParam("aruco_detection_", aruco_detection_);
+  nh_private_.getParam("desc_match_thresh_", desc_match_thresh_);
+  dm.setDescMatchThreshold(desc_match_thresh_);
   
   nh_private_.getParam("gc_size_", gc_size_);
   nh_private_.getParam("gc_threshold_", gc_threshold_);
@@ -405,7 +407,6 @@ int main (int argc, char** argv){
 	focal_length = camera_matrix.at<double>(0,0);
 	dm.setParameters(2*camera_matrix.at<double>(1,2), 2*camera_matrix.at<double>(0,2), package_path_);
 	dm.setCameraParameters(camera_matrix, dist_coeffs);
-	dm.loadTestDescriptors();
 	
   // DEBUGGING
   std::cout << "Package Path: " << package_path_ << std::endl;

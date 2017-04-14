@@ -14,6 +14,8 @@
 #include <pcl/point_types.h>
 #include <pcl/io/pcd_io.h>
 
+#include <iostream>
+
 typedef pcl::PointXYZ PointType;
 typedef pcl::PointXYZI IntensityType;
 typedef pcl::Normal NormalType;
@@ -51,25 +53,29 @@ class DataManagement
 		bool parameters_ready = false;
 		bool camera_parameters_ready = false;
 		bool database_desc_ready_ = false;
-		pcl::PointCloud<PointType>::Ptr cloud;
+		bool highlight_cloud_ready_ = false;
+		pcl::PointCloud<PointType>::Ptr cloud, highlight_cloud_;
 		
 	public:
 	
 		void setParameters(double h, double w, std::string p);
 		void setCameraParameters(cv::Mat c, cv::Mat d);
 		void setPixelPointReady();
+		void setDescMatchThreshold(float thresh);
 	
 		void loadTransform(cv::Mat t, cv::Mat r);
 		void loadFrame(cv::Mat f);
 		void loadCloud(pcl::PointCloud<PointType>::Ptr &c);
 		void loadPixelPoint(cv::Point2f p, int id);
 		void loadDatabaseDescriptors(std::vector < std::vector < int > > index_vector, std::vector < std::vector < float > > element_vector);
+		void loadDatabaseDescriptors(pcl::PointCloud<PointType>::Ptr &c);
 		// To be deleted
 		void loadTestDescriptors();
 		
 		void getTransform(cv::Mat& t, cv::Mat& r);
 		bool getFrame(cv::Mat& f);
 		bool getCloud(pcl::PointCloud<PointType>::Ptr &r);
+		bool getHighlightCloud(pcl::PointCloud<PointType>::Ptr &c);
 		bool getPixelPoint(cv::Point2f &p);
 		bool getPointCloudIndex(int &index, int n);
 		bool getPointIndexSize(int &n);
@@ -101,7 +107,7 @@ class DataManagement
 		 * Prior to performing a match, the elements withina  descriptor needs to be sorted according to magnitude, from smallest to largest.
 		 * The Insertion sort algorithm is used to perform this task.
 		 * */
-		void arrangeDescriptorsElements();
+		void arrangeDescriptorsElements(std::vector < std::vector < int > > &index, std::vector < std::vector < float > > &desc);
 		
 		void clearPixelPoints();
 		void clearDescriptors();
@@ -110,8 +116,7 @@ class DataManagement
 		
 		void labelMarkers();
 		
-		void printDescriptors();
-		void printDatabaseDescriptors();
+		void printDescriptors(std::vector < std::vector < int > >, std::vector < std::vector < float > > desc);
 		
 		bool detectMarkers(int blur_param_, int hsv_target_, int hsv_threshold_ , int contour_area_min_, int contour_area_max, double contour_ratio_min_, double contour_ratio_max_, bool aruco_detection_);
 		
@@ -237,6 +242,16 @@ class DataManagement
 			
 			return marker_found;
 }
+
+		void computeHighlightCloud(){
+			ROS_DEBUG("Computing Highlight Cloud");
+			pcl::PointCloud<PointType>::Ptr c (new pcl::PointCloud<PointType> ());
+			for(int i=0; i<cloud_index.size(); i++){
+				c->points.push_back(cloud->points[cloud_index[i]]);
+			}
+			highlight_cloud_ = c;
+			highlight_cloud_ready_ = true;
+		}
 };
 
 void DataManagement::setParameters(double h, double w, std::string p){
@@ -257,6 +272,10 @@ void DataManagement::setCameraParameters(cv::Mat c, cv::Mat d){
 
 void DataManagement::setPixelPointReady(){
 		pixel_point_ready = true;
+}
+
+void DataManagement::setDescMatchThreshold(float thresh){
+	desc_match_thresh_ = thresh;
 }
 
 void DataManagement::loadTransform(cv::Mat t, cv::Mat r){
@@ -293,8 +312,9 @@ void DataManagement::loadDatabaseDescriptors(std::vector < std::vector < int > >
 	database_desc_index_.swap(index_vector);
 	database_desc_.swap(element_vector);
 	database_desc_ready_ = true;
-	std::cout << "Database Descriptors Loaded" << std::endl;
-	printDatabaseDescriptors();
+	ROS_DEBUG("Database Descriptors Loaded");
+	arrangeDescriptorsElements(database_desc_index_, database_desc_);
+	printDescriptors(database_desc_index_, database_desc_);
 }
 
 // To be deleted
@@ -309,6 +329,33 @@ void DataManagement::loadTestDescriptors(){
 	test_desc_.push_back(desc);
 	test_desc_index_.push_back(index);
 	loadDatabaseDescriptors(test_desc_index_, test_desc_);
+}
+
+void DataManagement::loadDatabaseDescriptors(pcl::PointCloud<PointType>::Ptr &c){
+	ROS_DEBUG("Computing Database Descriptors from Cloud");
+	ROS_DEBUG_STREAM("Size of cloud: " << c->points.size());
+	for(int i=0; i<c->points.size(); i++){
+		//~ std::cout << "i: " << i << std::endl;
+		std::vector<float> temp_desc;
+		std::vector<int> temp_index;
+		for (int j=0; j<c->points.size(); j++){
+			//~ std::cout << "j: " << j << std::endl;
+			if (i!=j){
+				float delta_x = c->points[i].x - c->points[j].x;
+				float delta_y = c->points[i].y - c->points[j].y;
+				float delta_z = c->points[i].z - c->points[j].z;
+				float s = sqrt(pow(delta_x,2) + pow(delta_y,2) + pow(delta_z,2));
+				temp_desc.push_back(s);
+				temp_index.push_back(j);
+			}
+		}
+		database_desc_index_.push_back(temp_index);
+		database_desc_.push_back(temp_desc);		
+	}
+	database_desc_ready_ = true;
+	ROS_INFO("Database Descriptors Loaded");
+	arrangeDescriptorsElements(database_desc_index_, database_desc_);
+	printDescriptors(database_desc_index_, database_desc_);
 }
 
 void DataManagement::getTransform(cv::Mat& t, cv::Mat& r){
@@ -333,6 +380,20 @@ bool DataManagement::getCloud(pcl::PointCloud<PointType>::Ptr &r){
 		return true;
 	}
 	else{
+		return false;
+	}
+}
+
+bool DataManagement::getHighlightCloud(pcl::PointCloud<PointType>::Ptr &c){
+	
+	if (highlight_cloud_ready_){
+		ROS_DEBUG("Returning Highlight Cloud");
+		c = highlight_cloud_;
+		highlight_cloud_ready_ = false;
+		return true;
+	}
+	else{
+		ROS_DEBUG("Highlight Cloud Size Zero");
 		return false;
 	}
 }
@@ -466,7 +527,7 @@ bool DataManagement::getMatchingDescriptor(){
 void DataManagement::computeDescriptors(){
 	if(pixel_point_ready && cloud_ready){
 		int n = point_id.size();
-		//~ std::cout << "Number of features detected: " << n << std::endl;
+		ROS_DEBUG_STREAM("Number of features detected: " << n);
 		for (int i = 0 ; i < n ; i++){
 			std::vector<float> temp_desc;
 			std::vector<int> temp_index;
@@ -483,9 +544,9 @@ void DataManagement::computeDescriptors(){
 			feature_desc_index.push_back(temp_index);
 			feature_desc.push_back(temp_desc);
 		}
-		
-		//~ printDescriptors();
-		//~ std::cout << "Finished computing descriptors... " << std::endl;
+		ROS_DEBUG("Finished computing descriptors... ");
+		arrangeDescriptorsElements(feature_desc_index, feature_desc);
+		//~ printDescriptors(feature_desc_index, feature_desc);
 	}
 	else if(!pixel_point_ready){
 		//~ std::cout << "Pixel points not ready, cannot compute descriptor" << std::endl;
@@ -495,53 +556,37 @@ void DataManagement::computeDescriptors(){
 	}
 }
 
-void DataManagement::arrangeDescriptorsElements(){
+void DataManagement::arrangeDescriptorsElements(std::vector < std::vector < int > > &index, std::vector < std::vector < float > > &	desc){
 	 
-	if(pixel_point_ready && cloud_ready){
-		//~ std::cout << std::endl << "Sorting descriptors according to magnitude..." << std::endl;
-		for (int n=0; n < feature_desc.size() ; n++){
-			//~ std::cout << "n: " << n << std::endl;
-			bool lowest_score = true;
-			int front_of_index;
-			std::vector <float> sorted_desc;
-			std::vector <int> sorted_index;
-			//~ std::cout << "Pushback first index" << std::endl;
-			sorted_desc.push_back(feature_desc[n][0]);
-			sorted_index.push_back(feature_desc_index[n][0]);
-			for (int i=1; i<feature_desc[n].size(); i++){    
-				//~ std::cout << "i: " << i << std::endl;
-				lowest_score = true;  
-				for (int  j=0 ; j < sorted_desc.size() ; j++){   
-					//~ std::cout << "j: " << j << std::endl;
-					if(feature_desc[n][i] <= sorted_desc[j]){
-						//~ std::cout << "Smaller than index j" << std::endl;
-						front_of_index = j;
-						lowest_score = false;
-						break;
-					}       
-				}
-				if (lowest_score==false){
-					//~ std::cout << "Not lowest score" << std::endl;
-					sorted_desc.insert(sorted_desc.begin() + front_of_index, feature_desc[n][i]);     
-					sorted_index.insert(sorted_index.begin() + front_of_index, feature_desc_index[n][i]);           
-				}
-				else if(lowest_score==true){
-					//~ std::cout << "Lowest score" << std::endl;
-					sorted_desc.push_back(feature_desc[n][i]);
-					sorted_index.push_back(feature_desc_index[n][i]);
-				}
+	ROS_DEBUG("Sorting descriptors according to magnitude...");
+	for (int n=0; n < desc.size() ; n++){
+		bool lowest_score = true;
+		int front_of_index;
+		std::vector <float> sorted_desc;
+		std::vector <int> sorted_index;
+		sorted_desc.push_back(desc[n][0]);
+		sorted_index.push_back(index[n][0]);
+		for (int i=1; i<desc[n].size(); i++){    
+			lowest_score = true;  
+			for (int  j=0 ; j < sorted_desc.size() ; j++){   
+				if(desc[n][i] <= sorted_desc[j]){
+					front_of_index = j;
+					lowest_score = false;
+					break;
+				}       
 			}
-			
-			feature_desc_index[n].swap(sorted_index);
-			feature_desc[n].swap(sorted_desc);
-			//~ std::cout << "Descriptors Sorted..." << std::endl;
+			if (lowest_score==false){
+				sorted_desc.insert(sorted_desc.begin() + front_of_index, desc[n][i]);     
+				sorted_index.insert(sorted_index.begin() + front_of_index, index[n][i]);           
+			}
+			else if(lowest_score==true){
+				sorted_desc.push_back(desc[n][i]);
+				sorted_index.push_back(index[n][i]);
+			}
 		}
-		//~ printDescriptors();
-	}else if(!pixel_point_ready){
-		//~ std::cout << "Pixel points not ready, cannot compute descriptor" << std::endl;
-	}
-	else if(!cloud_ready){
-		//~ std::cout << "Point cloud not ready, cannot compute descriptor" << std::endl;
+		index[n].swap(sorted_index);
+		desc[n].swap(sorted_desc);
+		ROS_DEBUG("Descriptors Sorted...");
 	}
 }
 
@@ -556,7 +601,7 @@ void DataManagement::clearPixelPoints(){
 void DataManagement::clearDescriptors(){
 	std::vector < std::vector < float > > ().swap(feature_desc);
 	std::vector < std::vector < int > > ().swap(feature_desc_index);
-	//~ std::cout << "Descriptors cleared" << std::endl;
+	ROS_DEBUG("Descriptors cleared");
 }
 
 bool DataManagement::statusTransform(){
@@ -577,23 +622,21 @@ void DataManagement::labelMarkers(){
 	}
 }
 
-void DataManagement::printDescriptors(){
-	for( int i = 0; i < point_id.size() ; i++){
-		std::cout << " Descriptor (" << point_id[i] << ") : ";
-		for (int j = 0 ; j < feature_desc[i].size() ; j++){
-			std::cout << feature_desc[i][j] << "(" << feature_desc_index[i][j] << "), ";
+void DataManagement::printDescriptors(std::vector < std::vector < int > > index, std::vector < std::vector < float > > desc){
+	for( int i = 0; i < index.size() ; i++){
+		std::stringstream convert;
+		std::string s;
+		convert << " Descriptor (";
+		convert << i;
+		convert << ") : ";
+		for (int j = 0 ; j < desc[i].size() ; j++){
+			convert << desc[i][j];
+			convert << "(";
+			convert << index[i][j];
+			convert << "), ";
 		}
-		std::cout << std::endl;
-	}
-}
-
-void DataManagement::printDatabaseDescriptors(){
-	for( int i = 0; i < database_desc_index_.size() ; i++){
-		std::cout << " Descriptor (" << i << ") : ";
-		for (int j = 0 ; j < database_desc_[i].size() ; j++){
-			std::cout << database_desc_[i][j] << "(" << database_desc_index_[i][j] << "), ";
-		}
-		std::cout << std::endl;
+		s = convert.str();
+		ROS_INFO_STREAM(s);
 	}
 }
 
@@ -605,9 +648,14 @@ bool DataManagement::detectMarkers(int blur_param_, int hsv_target_, int hsv_thr
 		}else{
 			marker_found = circleEstimation(frame, blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max, contour_ratio_min_, contour_ratio_max_);
 		}
+		
+		if (marker_found){
+			computeHighlightCloud();
+		}
+		
 		return marker_found;
 	}else{
-		std::cout << "Image not ready, cannot detect markers" << std::endl;
+		ROS_DEBUG("Image not ready, cannot detect markers");
 		return false;
 	}
 }
