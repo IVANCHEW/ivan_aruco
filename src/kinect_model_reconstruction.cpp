@@ -86,30 +86,12 @@ int gc_threshold_;
 float gc_size_;
 float desc_match_thresh_;
 
+// For Model Reconstruction
+float downsampling_size_ = 0.05;
+
 #include "data_manager.cpp"
 
 DataManagement dm;
-
-
-void generateTestModelCloud(pcl::PointCloud<PointType>::Ptr &cloud){
-	cloud->width = 6;
-	cloud->height = 1;
-	cloud->is_dense = false;
-	cloud->points.resize(cloud->width * cloud->height);
-	
-	for(int i=0; i<3; i++){
-		cloud->points[i].x = 0;
-		cloud->points[i].y = 0;
-		cloud->points[i].z = 0;
-	}
-	
-	cloud->points[1].x = 0.08;
-	cloud->points[2].y = 0.2;
-	cloud->points[3].z = 0.3;
-	cloud->points[4].x = 0.1;
-	cloud->points[4].y = 0.2;
-	cloud->points[5].x = 0.4;
-}
 
 void updateParameters(YAML::Node config){
 	if (config["fx"])
@@ -185,6 +167,54 @@ void image_callback(const sensor_msgs::ImageConstPtr& msg){
 	}
 }
 
+// Thread to retrieve ROS messages from topics subscribed
+void *start_ros_callback(void *threadid){
+  long tid;
+  tid = (long)threadid;
+  ROS_DEBUG_STREAM("Starting ROS Callback Listener, Thread ID : ");
+  ros::NodeHandle nh_, nh_private_;
+  ros::CallbackQueue cb_queue_;
+	
+  // SUBSCRIBE TO POINT CLOUD TOPIC
+  ROS_DEBUG("Subscribing to Kinect Point Cloud Topic");
+  ros::Subscriber point_cloud_sub_;
+  point_cloud_sub_ = nh_.subscribe(cloud_topic_, 1, cloud_callback);
+  
+  //~ // SUBSCRIBE TO 2D IMAGE TOPIC
+  ROS_DEBUG("Subscribing to Kinect Image Topic");
+	image_transport::ImageTransport it(nh_);
+  image_transport::Subscriber image_sub_ = it.subscribe(image_topic_, 1, image_callback);
+  
+  // CONTINUOUS RETRIEVAL
+  while (!stop_all_){
+		cb_queue_.callAvailable();
+		ros::spinOnce();
+	}
+	
+	image_sub_.shutdown();
+	point_cloud_sub_.shutdown();
+  ros::shutdown();
+  
+  ROS_DEBUG("Exiting ROS callback thread");
+  pthread_exit(NULL);
+}
+
+// PCL VIEWER KEYBOARD CALL BACK
+void keyboardEventOccurred (const pcl::visualization::KeyboardEvent &event, void* viewer_void){
+  boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer = *static_cast<boost::shared_ptr<pcl::visualization::PCLVisualizer> *> (viewer_void);
+  std::string key_value = event.getKeySym();
+  std::cout << key_value << std::endl;
+  
+  if (event.getKeySym () == "d" && event.keyDown ()){
+		ROS_DEBUG("PCL Viewer key down, input value = 1");
+    input_value_ = 1;
+  }
+  else if (event.getKeySym () == "f" && event.keyDown ()){
+		ROS_DEBUG("PCL Viewer key down, input value = 1");
+    input_value_ = 2;
+  }
+}
+
 void *start_viewer(void *threadid){
 	long tid;
   tid = (long)threadid;
@@ -205,21 +235,20 @@ void *start_viewer(void *threadid){
   pcl::PointCloud<PointType>::Ptr highlight_cloud (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr model_cloud_ (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr transformed_cloud_ (new pcl::PointCloud<PointType> ());
+  pcl::PointCloud<PointType>::Ptr reconstructed_cloud_ (new pcl::PointCloud<PointType> ());
   pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler (highlight_cloud, 255, 0, 0);
-  pcl::visualization::PointCloudColorHandlerCustom<PointType> model_color_handler_ (model_cloud_, 0, 255, 0);
   pcl::visualization::PointCloudColorHandlerCustom<PointType> transformed_color_handler_ (transformed_cloud_, 0, 0, 255);
   
   bool first_cloud_ = true;
   bool retrieve_cloud_ = false;
   bool retrieve_index_ = false;
   
-  //TO BE DELETED
-  generateTestModelCloud(model_cloud_);
-  dm.loadDatabaseDescriptors(model_cloud_);
-  
   // VIEWER LOOP
   while (!stop_all_){
 		current_time_ = ros::Time::now().toSec();
+		
+		Eigen::Matrix4f estimated_pose_;
+		bool pose_found_;
 		
 		// NODE TERMINATION CONDITION
 		if(current_time_ - last_retrieved_time_ > 5.0){
@@ -230,9 +259,11 @@ void *start_viewer(void *threadid){
 		// PROCESS IMAGE
 		if(dm.getCloudAndImageLoadStatus()){
 			next_frame_ = false;
+			// DETECT POSE ESTIMATION MARKERS
 			dm.detectMarkers(blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max_, contour_ratio_min_, contour_ratio_max_, aruco_detection_);
 			dm.computeDescriptors();
 			dm.getMatchingDescriptor();
+			pose_found_ = dm.computePoseEstimate(estimated_pose_, gc_size_, gc_threshold_);
 			retrieve_image_ = dm.getFrame(image_display_);
 			retrieve_cloud_ = dm.getCloud(cloud);
 			next_frame_ = true;
@@ -256,9 +287,6 @@ void *start_viewer(void *threadid){
 				highlight_cloud->points.push_back(cloud->points[0]);
 				viewer.addPointCloud (highlight_cloud, highlight_color_handler, "Highlight Cloud");
 				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "Highlight Cloud");
-				transformed_cloud_->points.push_back(cloud->points[0]);
-				viewer.addPointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
-				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "transformed");
 				first_cloud_ = false;
 			}
 			else{
@@ -268,11 +296,34 @@ void *start_viewer(void *threadid){
 				}
 			}
 			
-			Eigen::Matrix4f estimated_pose_;
-			if(dm.computePoseEstimate(estimated_pose_, gc_size_, gc_threshold_)){
-				ROS_DEBUG("Pose Found");
+			if(pose_found_){
 				pcl::transformPointCloud (*model_cloud_, *transformed_cloud_, estimated_pose_);
 				viewer.updatePointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
+			}
+			
+			// ADD VIEW TO RECONSTRUCTED CLOUD
+			if(pose_found_ && input_value_==1){
+				ROS_DEBUG("Adding view to reconstructed cloud");
+				Eigen::Matrix4f pose_inverse_;
+				pcl::PointCloud<PointType>::Ptr add_cloud_ (new pcl::PointCloud<PointType> ()); 
+				pose_inverse_ = estimated_pose_.inverse();
+				pcl::transformPointCloud<PointType> (*cloud, *add_cloud_, pose_inverse_);
+				*reconstructed_cloud_ += *add_cloud_;
+				input_value_=0;
+			}
+			
+			// SAVE RECONSTRUCTED CLOUD
+			if(input_value_==2){
+				pcl::VoxelGrid<PointType> sor;
+				pcl::PointCloud<PointType>::Ptr downsampled_cloud_ (new pcl::PointCloud<PointType> ()); 
+				pcl::PCDWriter writer;
+				
+				sor.setInputCloud (reconstructed_cloud_);
+				sor.setLeafSize (downsampling_size_,downsampling_size_,downsampling_size_);
+				sor.filter (*downsampled_cloud_);
+				writer.write<PointType> (package_path_ + "/reconstruced.pcd", *downsampled_cloud_, false);
+				input_value_=0;
+				stop_all_=true;
 			}
 			
 			dm.clearPixelPoints();
@@ -288,52 +339,9 @@ void *start_viewer(void *threadid){
 	pthread_exit(NULL);
 }
 
-// Thread to retrieve ROS messages from topics subscribed
-void *start_ros_callback(void *threadid){
-  long tid;
-  tid = (long)threadid;
-  std::cout << std::endl << "Starting ROS Callback Listener, Thread ID : " << tid << std::endl;
-  ros::NodeHandle nh_, nh_private_;
-  ros::CallbackQueue cb_queue_;
-	
-  // SUBSCRIBE TO POINT CLOUD TOPIC
-  std::cout << "Subscribing to Kinect Point Cloud Topic" << std::endl;
-  ros::Subscriber point_cloud_sub_;
-  point_cloud_sub_ = nh_.subscribe(cloud_topic_, 1, cloud_callback);
-  
-  //~ // SUBSCRIBE TO 2D IMAGE TOPIC
-  std::cout << "Subscribing to Kinect Image Topic" << std::endl;
-	image_transport::ImageTransport it(nh_);
-  image_transport::Subscriber image_sub_ = it.subscribe(image_topic_, 1, image_callback);
-  
-  // CONTINUOUS RETRIEVAL
-  while (!stop_all_){
-		cb_queue_.callAvailable();
-		ros::spinOnce();
-	}
-	
-	image_sub_.shutdown();
-	point_cloud_sub_.shutdown();
-  ros::shutdown();
-  
-  std::cout << "Exiting ROS callback thread" << std::endl;
-  pthread_exit(NULL);
-}
-
-// PCL VIEWER KEYBOARD CALL BACK
-void keyboardEventOccurred (const pcl::visualization::KeyboardEvent &event, void* viewer_void){
-  boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer = *static_cast<boost::shared_ptr<pcl::visualization::PCLVisualizer> *> (viewer_void);
-  std::string key_value = event.getKeySym();
-  std::cout << key_value << std::endl;
-  
-  if (event.getKeySym () == "d" && event.keyDown ()){
-    input_value_ = 1;
-  }
-}
-
 int main (int argc, char** argv){
-  std::cout << std::endl << "Kinect Depth Test Package" << std::endl;
-  ros::init(argc, argv, "kinect_depth_test");
+  ROS_DEBUG("Kinect Model Reconstruction Package");
+  ros::init(argc, argv, "kinect_model_reconstruction");
   ros::NodeHandle nh_;
   ros::NodeHandle nh_private_("~");
   
@@ -358,13 +366,13 @@ int main (int argc, char** argv){
   nh_private_.getParam("debug", debug_);
   if (debug_)
 	{
-		std::cout << "Debug Mode ON" << std::endl;
+		ROS_INFO("Debug Mode ON");
 		pcl::console::setVerbosityLevel(pcl::console::L_INFO);
 		ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Debug);
 	}
 	else
 	{
-		std::cout << "Debug Mode OFF" << std::endl;
+		ROS_INFO("Debug Mode OFF");
 		pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
 		ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Info);
 	}
@@ -378,21 +386,23 @@ int main (int argc, char** argv){
 	dm.setCameraParameters(camera_matrix, dist_coeffs);
 	
   // DEBUGGING
-  std::cout << "Package Path: " << package_path_ << std::endl;
-	std::cout << std::endl << "Calibration Matrix: " << std::endl << std::setprecision(5);
-	for (int i=0 ; i<3 ; i++){
-		std::cout << "[ " ;
-		for (int j=0 ; j<3 ; j++)
-			std::cout << camera_matrix.at<double>(i,j) << " ";
+  ROS_DEBUG_STREAM("Package Path: " << package_path_);
+  if(debug_){
+		std::cout << std::endl << "Calibration Matrix: " << std::endl << std::setprecision(5);
+		for (int i=0 ; i<3 ; i++){
+			std::cout << "[ " ;
+			for (int j=0 ; j<3 ; j++)
+				std::cout << camera_matrix.at<double>(i,j) << " ";
+			std::cout << "]" << std::endl;
+		}
+		std::cout << std::endl << "Focal Length: " << focal_length << std::endl;
+		
+		std:: cout << std::endl << "Distortion Matrix: " << std::endl << "[ ";
+		for (int i=0 ; i<5 ; i++){
+			std::cout << dist_coeffs.at<double>(i,0) << " ";
+		}
 		std::cout << "]" << std::endl;
 	}
-	std::cout << std::endl << "Focal Length: " << focal_length << std::endl;
-	
-	std:: cout << std::endl << "Distortion Matrix: " << std::endl << "[ ";
-	for (int i=0 ; i<5 ; i++){
-		std::cout << dist_coeffs.at<double>(i,0) << " ";
-	}
-	std::cout << "]" << std::endl;
 	
   // THREADING
   pthread_t thread[3];
@@ -407,7 +417,7 @@ int main (int argc, char** argv){
   viewer.registerKeyboardCallback (keyboardEventOccurred, (void*)&viewer);
   thread_error_ = pthread_create(&thread[i], NULL, start_viewer, (void *)i);
   if (thread_error_){
-    std::cout << "Error:unable to create thread," << thread_error_ << std::endl;
+    ROS_ERROR_STREAM("Error:unable to create viewer thread," << thread_error_);
     exit(-1);
   }
 
@@ -415,7 +425,7 @@ int main (int argc, char** argv){
   i++;
   thread_error_ = pthread_create(&thread[i], NULL, start_ros_callback, (void *)i);
   if (thread_error_){
-    std::cout << "Error:unable to create thread," << thread_error_ << std::endl;
+    ROS_ERROR_STREAM("Error:unable to create ROS Callback thread," << thread_error_);
     exit(-1);
   }
 
@@ -426,12 +436,14 @@ int main (int argc, char** argv){
   for(int j=0; j < 1; j++ ){
     thread_error_ = pthread_join(thread[i], &status);
     if (thread_error_){
-      std::cout << "Error:unable to join," << thread_error_ << std::endl;
+      ROS_ERROR_STREAM("Error:unable to join," << thread_error_);
       exit(-1);
     }
   }
   
-  std::cout << std::endl << "End of main script" << std::endl;
+  ROS_INFO("End of main script");
   
   return 0;
 }
+
+

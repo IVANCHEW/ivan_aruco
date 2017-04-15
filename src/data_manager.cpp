@@ -14,6 +14,10 @@
 #include <pcl/point_types.h>
 #include <pcl/io/pcd_io.h>
 
+// POSE ESTIMATION
+#include <pcl/recognition/cg/geometric_consistency.h>
+
+// UTILITIES
 #include <iostream>
 
 typedef pcl::PointXYZ PointType;
@@ -54,7 +58,7 @@ class DataManagement
 		bool camera_parameters_ready = false;
 		bool database_desc_ready_ = false;
 		bool highlight_cloud_ready_ = false;
-		pcl::PointCloud<PointType>::Ptr cloud, highlight_cloud_;
+		pcl::PointCloud<PointType>::Ptr cloud, highlight_cloud_, model_cloud_;
 		
 	public:
 	
@@ -102,6 +106,8 @@ class DataManagement
 		 * Where feature_desc contains the distances and feature_desc_index contains the associated marker scene index.
 		 * */
 		void computeDescriptors();
+		
+		bool computePoseEstimate(Eigen::Matrix4f &estimated_pose_, float gc_size_, int gc_threshold_);
 		
 		/* Documentation: Descriptor's Elements Arrangement
 		 * Prior to performing a match, the elements withina  descriptor needs to be sorted according to magnitude, from smallest to largest.
@@ -333,6 +339,7 @@ void DataManagement::loadTestDescriptors(){
 
 void DataManagement::loadDatabaseDescriptors(pcl::PointCloud<PointType>::Ptr &c){
 	ROS_DEBUG("Computing Database Descriptors from Cloud");
+	model_cloud_ = c;
 	ROS_DEBUG_STREAM("Size of cloud: " << c->points.size());
 	for(int i=0; i<c->points.size(); i++){
 		//~ std::cout << "i: " << i << std::endl;
@@ -410,6 +417,7 @@ bool DataManagement::getPixelPoint(cv::Point2f &p){
 	}
 }
 
+// Not used
 bool DataManagement::getPointCloudIndex(int &index, int n){
 	if (parameters_ready && pixel_point_ready){
 		index = cloud_index[n];
@@ -421,6 +429,7 @@ bool DataManagement::getPointCloudIndex(int &index, int n){
 	}
 }
 
+// Not used
 bool DataManagement::getPointIndexSize(int &n){
 		//~ std::cout << "Point index size returned: " << n << std::endl;
 		if (point_id.size()>0 && pixel_point_ready){
@@ -554,6 +563,45 @@ void DataManagement::computeDescriptors(){
 	else if(!cloud_ready){
 		//~ std::cout << "Point cloud not ready, cannot compute descriptor" << std::endl;
 	}
+}
+
+bool DataManagement::computePoseEstimate(Eigen::Matrix4f &estimated_pose_, float gc_size_, int gc_threshold_){
+	bool pose_found_ = false;
+	if (correspondence_point_.size()>2){
+		ROS_DEBUG("Begin Pose Estimation");
+				
+		//STEP 1: SET CORRESPONDENCE
+		pcl::CorrespondencesPtr model_scene_corrs (new pcl::Correspondences ());
+		for (int i=0; i<correspondence_point_.size(); i++){
+			pcl::Correspondence corr (correspondence_database_[i], correspondence_point_[i], 0);
+			ROS_DEBUG_STREAM("Scene: " << correspondence_point_[i] << " Model: " << correspondence_database_[i]);
+			model_scene_corrs->push_back (corr);
+		}
+		
+		//STEP 2: PERFORM GEOMETRIC CONSISTENCY GROUPING
+		std::vector<Eigen::Matrix4f, Eigen::aligned_allocator<Eigen::Matrix4f> > rototranslations;
+		std::vector<pcl::Correspondences> clustered_corrs;  
+		pcl::GeometricConsistencyGrouping<PointType, PointType> gc_clusterer;
+			gc_clusterer.setGCSize (gc_size_);
+			gc_clusterer.setGCThreshold (gc_threshold_);
+			gc_clusterer.setInputCloud (model_cloud_);
+			gc_clusterer.setSceneCloud (highlight_cloud_);
+			gc_clusterer.setModelSceneCorrespondences (model_scene_corrs);
+			gc_clusterer.recognize (rototranslations, clustered_corrs);
+		ROS_DEBUG_STREAM("Model instances found: " << rototranslations.size ());        
+		if (rototranslations.size ()== 0){
+			ROS_DEBUG("No instance found");
+		}
+		else{
+			// TEST: RETRIEVE FIRST ESTIMATE
+			ROS_DEBUG("Visualising estimated pose");
+			estimated_pose_ = rototranslations[0].block<4,4>(0,0);
+			pose_found_ = true;
+		}
+	}else{
+		ROS_DEBUG("Insufficient points to perform pose estimation");	
+	}
+	return pose_found_;
 }
 
 void DataManagement::arrangeDescriptorsElements(std::vector < std::vector < int > > &index, std::vector < std::vector < float > > &	desc){

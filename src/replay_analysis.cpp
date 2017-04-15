@@ -242,13 +242,9 @@ void *start_viewer(void *threadid){
   bool first_cloud_ = true;
   bool model_cloud_ready_ = false;
   bool retrieve_cloud_ = false;
-  bool retrieve_index_ = false;
-  int highlight_size_;
-  int cloud_index;
   
   //TO BE DELETED
   generateTestModelCloud(model_cloud_);
-  std::cout << "Loading database descriptor" << std::endl;
   dm.loadDatabaseDescriptors(model_cloud_);
   model_cloud_ready_ = true;
   
@@ -285,8 +281,6 @@ void *start_viewer(void *threadid){
 		// DISPLAY CLOUD
 		if (retrieve_cloud_){
 			
-			std::vector<int> correspondence_point_, correspondence_database_;
-			
 			if (first_cloud_){
 				std::cout << "Added new cloud to viewer" << std::endl;
 				viewer.addPointCloud(cloud, "cloud");
@@ -307,58 +301,20 @@ void *start_viewer(void *threadid){
 				if(dm.getHighlightCloud(highlight_cloud)){
 					viewer.updatePointCloud(highlight_cloud, highlight_color_handler, "Highlight Cloud");
 				}
-				retrieve_index_ = dm.getPointIndexSize(highlight_size_);
-				if (retrieve_index_){
-					dm.getCorrespondence(correspondence_point_, correspondence_database_);
-				}
 			}
 			
-			// POSE ESTIMATION
-			if(highlight_size_>=3){
-				ROS_DEBUG("Begin Pose Estimation");
-				
-				//STEP 1: SET CORRESPONDENCE
-				pcl::CorrespondencesPtr model_scene_corrs (new pcl::Correspondences ());
-				for (int i=0; i<correspondence_point_.size(); i++){
-					pcl::Correspondence corr (correspondence_database_[i], correspondence_point_[i], 0);
-					ROS_DEBUG_STREAM("Scene: " << correspondence_point_[i] << " Model: " << correspondence_database_[i]);
-					model_scene_corrs->push_back (corr);
-				}
-				
-				//STEP 2: PERFORM GEOMETRIC CONSISTENCY GROUPING
-				std::vector<Eigen::Matrix4f, Eigen::aligned_allocator<Eigen::Matrix4f> > rototranslations;
-				std::vector<pcl::Correspondences> clustered_corrs;  
-				pcl::GeometricConsistencyGrouping<PointType, PointType> gc_clusterer;
-					gc_clusterer.setGCSize (gc_size_);
-					gc_clusterer.setGCThreshold (gc_threshold_);
-					gc_clusterer.setInputCloud (model_cloud_);
-					gc_clusterer.setSceneCloud (highlight_cloud);
-					gc_clusterer.setModelSceneCorrespondences (model_scene_corrs);
-					gc_clusterer.recognize (rototranslations, clustered_corrs);
-
-				ROS_DEBUG_STREAM("Model instances found: " << rototranslations.size ());        
-				if (rototranslations.size ()== 0){
-					ROS_DEBUG("No instance found");
-				}
-				else{
-					// TEST: RETRIEVE FIRST ESTIMATE
-					ROS_DEBUG("Visualising estimated pose");
-					Eigen::Matrix4f estimated_pose_ = rototranslations[0].block<4,4>(0,0);
-					transformed_cloud_->points.clear();
-					pcl::transformPointCloud (*model_cloud_, *transformed_cloud_, estimated_pose_);
-					viewer.updatePointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
-				}
-				
-			}else{
-				ROS_DEBUG("Insufficient points to perform pose estimation");	
+			Eigen::Matrix4f estimated_pose_;
+			if(dm.computePoseEstimate(estimated_pose_, gc_size_, gc_threshold_)){
+				pcl::transformPointCloud (*model_cloud_, *transformed_cloud_, estimated_pose_);
+				viewer.updatePointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
 			}
+				
 			viewer.spinOnce();
 			dm.clearPixelPoints();
 			dm.clearDescriptors();
 		}
 		retrieve_cloud_ = false;
 		retrieve_image_ = false;
-		retrieve_index_ = false;
 	}
 	std::cout << "Exiting Image Viewer Thread" << std::endl;
 	pthread_exit(NULL);

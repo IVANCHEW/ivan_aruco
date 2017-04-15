@@ -72,3 +72,7 @@ add_dependencies(test_bag_generator ${catkin_EXPORTED_TARGETS})
 add_executable(replay_analysis src/replay_analysis.cpp)
 target_link_libraries(replay_analysis yaml-cpp ${PCL_LIBRARIES} ${catkin_LIBRARIES})
 add_dependencies(replay_analysis ${catkin_EXPORTED_TARGETS})
+
+add_executable(kinect_model_reconstruction src/kinect_model_reconstruction.cpp)
+target_link_libraries(kinect_model_reconstruction yaml-cpp ${PCL_LIBRARIES} ${catkin_LIBRARIES})
+add_dependencies(kinect_model_reconstruction ${catkin_EXPORTED_TARGETS})
