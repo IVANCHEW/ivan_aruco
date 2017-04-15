@@ -55,9 +55,6 @@
 std::string yaml_path_;
 std::string package_path_;
 
-// For PCL visualisation
-pcl::visualization::PCLVisualizer viewer("Kinect Viewer");
-
 // For 2D camera parameters
 cv::Mat camera_matrix;
 cv::Mat dist_coeffs;
@@ -87,11 +84,30 @@ float gc_size_;
 float desc_match_thresh_;
 
 // For Model Reconstruction
-float downsampling_size_ = 0.05;
+float downsampling_size_;
 
 #include "data_manager.cpp"
 
 DataManagement dm;
+
+void generateTestModelCloud(pcl::PointCloud<PointType>::Ptr &cloud){
+	cloud->width = 4;
+	cloud->height = 1;
+	cloud->is_dense = false;
+	cloud->points.resize(cloud->width * cloud->height);
+	
+	for(int i=0; i<cloud->points.size(); i++){
+		cloud->points[i].x = 0;
+		cloud->points[i].y = 0;
+		cloud->points[i].z = 0;
+	}
+	
+	cloud->points[1].x = 0.08;
+	cloud->points[2].y = 0.17;
+	cloud->points[3].x = 0.015;
+	cloud->points[3].y = 0.07;
+
+}
 
 void updateParameters(YAML::Node config){
 	if (config["fx"])
@@ -114,8 +130,6 @@ void updateParameters(YAML::Node config){
     dist_coeffs.at<double>(3,0) = config["p2"].as<double>();
 }
 
-// Retrieve data from .yaml configuration file and load them into the
-// global calibration and distortion matrix. 
 void loadCalibrationMatrix(std::string camera_name_){
 	// Updates Parameter with .yaml file
 	camera_matrix = cv::Mat::eye(3, 3, CV_64F);
@@ -206,10 +220,12 @@ void keyboardEventOccurred (const pcl::visualization::KeyboardEvent &event, void
   std::cout << key_value << std::endl;
   
   if (event.getKeySym () == "d" && event.keyDown ()){
+		std::cout << "Key out, d" << std::endl;
 		ROS_DEBUG("PCL Viewer key down, input value = 1");
     input_value_ = 1;
   }
-  else if (event.getKeySym () == "f" && event.keyDown ()){
+  else if (event.getKeySym () == "s" && event.keyDown ()){
+		std::cout << "Key out, s" << std::endl;
 		ROS_DEBUG("PCL Viewer key down, input value = 1");
     input_value_ = 2;
   }
@@ -229,6 +245,7 @@ void *start_viewer(void *threadid){
   
   // POINT CLOUD VIEWER PARAMETER
   pcl::visualization::PCLVisualizer viewer("Kinect Viewer");
+  viewer.registerKeyboardCallback (keyboardEventOccurred, (void*)&viewer);
   viewer.setCameraPosition(0.0308721, 0.0322514, -1.05573, 0.0785146, -0.996516, -0.0281465);
   viewer.setPosition(49, 540);
   pcl::PointCloud<PointType>::Ptr cloud (new pcl::PointCloud<PointType> ());
@@ -242,6 +259,9 @@ void *start_viewer(void *threadid){
   bool first_cloud_ = true;
   bool retrieve_cloud_ = false;
   bool retrieve_index_ = false;
+  
+	generateTestModelCloud(model_cloud_);
+  dm.loadDatabaseDescriptors(model_cloud_);
   
   // VIEWER LOOP
   while (!stop_all_){
@@ -260,10 +280,16 @@ void *start_viewer(void *threadid){
 		if(dm.getCloudAndImageLoadStatus()){
 			next_frame_ = false;
 			// DETECT POSE ESTIMATION MARKERS
+			ROS_DEBUG("Detecting Markers");
 			dm.detectMarkers(blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max_, contour_ratio_min_, contour_ratio_max_, aruco_detection_);
+			ROS_DEBUG("Computing Descriptors");
 			dm.computeDescriptors();
+			ROS_DEBUG("Finding Matching Descriptors");
 			dm.getMatchingDescriptor();
+			ROS_DEBUG("Beginning Pose Estimation");
 			pose_found_ = dm.computePoseEstimate(estimated_pose_, gc_size_, gc_threshold_);
+			
+			ROS_DEBUG("Retrieving Image and Cloud");
 			retrieve_image_ = dm.getFrame(image_display_);
 			retrieve_cloud_ = dm.getCloud(cloud);
 			next_frame_ = true;
@@ -287,6 +313,9 @@ void *start_viewer(void *threadid){
 				highlight_cloud->points.push_back(cloud->points[0]);
 				viewer.addPointCloud (highlight_cloud, highlight_color_handler, "Highlight Cloud");
 				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "Highlight Cloud");
+				transformed_cloud_->points.push_back(cloud->points[0]);
+				viewer.addPointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
+				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "transformed");
 				first_cloud_ = false;
 			}
 			else{
@@ -303,6 +332,7 @@ void *start_viewer(void *threadid){
 			
 			// ADD VIEW TO RECONSTRUCTED CLOUD
 			if(pose_found_ && input_value_==1){
+				std::cout << "Adding view to reconstructed cloud" << std::endl;
 				ROS_DEBUG("Adding view to reconstructed cloud");
 				Eigen::Matrix4f pose_inverse_;
 				pcl::PointCloud<PointType>::Ptr add_cloud_ (new pcl::PointCloud<PointType> ()); 
@@ -314,6 +344,7 @@ void *start_viewer(void *threadid){
 			
 			// SAVE RECONSTRUCTED CLOUD
 			if(input_value_==2){
+				std::cout << "Saving reconstructed cloud" << std::endl;
 				pcl::VoxelGrid<PointType> sor;
 				pcl::PointCloud<PointType>::Ptr downsampled_cloud_ (new pcl::PointCloud<PointType> ()); 
 				pcl::PCDWriter writer;
@@ -359,11 +390,11 @@ int main (int argc, char** argv){
   nh_private_.getParam("image_topic_", image_topic_);
   nh_private_.getParam("cloud_topic_", cloud_topic_);
   nh_private_.getParam("desc_match_thresh_", desc_match_thresh_);
-  dm.setDescMatchThreshold(desc_match_thresh_);
-
   nh_private_.getParam("gc_size_", gc_size_);
   nh_private_.getParam("gc_threshold_", gc_threshold_);
-  nh_private_.getParam("debug", debug_);
+  nh_private_.getParam("downsampling_size_", downsampling_size_);
+  nh_private_.getParam("debug_", debug_);
+  
   if (debug_)
 	{
 		ROS_INFO("Debug Mode ON");
@@ -376,6 +407,7 @@ int main (int argc, char** argv){
 		pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
 		ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Info);
 	}
+	dm.setDescMatchThreshold(desc_match_thresh_);
 	
   // CAMERA CALIBRATION
 	camera_matrix = cv::Mat::eye(3, 3, CV_64F);
@@ -414,7 +446,6 @@ int main (int argc, char** argv){
   void *status;
   
   // PREPARE VIEWER THREAD
-  viewer.registerKeyboardCallback (keyboardEventOccurred, (void*)&viewer);
   thread_error_ = pthread_create(&thread[i], NULL, start_viewer, (void *)i);
   if (thread_error_){
     ROS_ERROR_STREAM("Error:unable to create viewer thread," << thread_error_);

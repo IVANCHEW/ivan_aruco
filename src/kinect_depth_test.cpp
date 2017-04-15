@@ -355,7 +355,7 @@ int main (int argc, char** argv){
 
   nh_private_.getParam("gc_size_", gc_size_);
   nh_private_.getParam("gc_threshold_", gc_threshold_);
-  nh_private_.getParam("debug", debug_);
+  nh_private_.getParam("debug_", debug_);
   if (debug_)
 	{
 		std::cout << "Debug Mode ON" << std::endl;

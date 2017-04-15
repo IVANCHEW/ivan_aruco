@@ -508,7 +508,7 @@ bool DataManagement::getMatchingDescriptor(){
 						break;
 					}
 				}
-				if (count == 2){
+				if (count == 3){
 					//~ std::cout << "Match Found" << std::endl;
 					match_found_ = true;
 					break;
@@ -634,13 +634,15 @@ void DataManagement::arrangeDescriptorsElements(std::vector < std::vector < int 
 		}
 		index[n].swap(sorted_index);
 		desc[n].swap(sorted_desc);
-		ROS_DEBUG("Descriptors Sorted...");
 	}
+	ROS_DEBUG("Descriptors Sorted...");
 }
 
 void DataManagement::clearPixelPoints(){
 	std::vector <int> ().swap(point_id);
 	std::vector <int> ().swap(cloud_index);
+	std::vector <int> ().swap(correspondence_point_);
+	std::vector <int> ().swap(correspondence_database_);
 	std::vector <cv::Point2f> ().swap(pixel_position_);
 	index_count = 0;
 	pixel_point_ready = false;
