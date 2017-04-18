@@ -15,6 +15,9 @@
 	<arg name="gc_size_"						default="0.05"/>
 	<arg name="gc_threshold_"				default="3"/>
 	<arg name="downsampling_size_"	default="0.01"/>
+	<arg name="icp_max_iter_"				default="10" />
+	<arg name="icp_corr_distance_"	default="0.003" />
+	<arg name="plane_cut_"					default="0.01" />
 	
   <node name="kinect_model_reconstruction" pkg="ivan_aruco" type="kinect_model_reconstruction" output="screen"> 
 		<param name="blur_param_"          	type="int"   	value="$(arg blur_param_)"/> 
@@ -32,6 +35,9 @@
 		<param name="desc_match_thresh_"		type="double"			value="$(arg desc_match_thresh_)"/>
 		<param name="debug_"								type="bool"				value="$(arg debug_)"/>
 		<param name="downsampling_size_"		type="double"			value="$(arg downsampling_size_)"/>
+		<param name="icp_max_iter_"					type="int"				value="$(arg icp_max_iter_)" />
+		<param name="icp_corr_distance_"		type="double"			value="$(arg icp_corr_distance_)" />
+		<param name="plane_cut_"						type="double"			value="$(arg plane_cut_)" />	
 	</node>
 	
 </launch>

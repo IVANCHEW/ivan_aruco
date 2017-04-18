@@ -82,6 +82,9 @@ bool aruco_detection_;
 int gc_threshold_;
 float gc_size_;
 float desc_match_thresh_;
+int icp_max_iter_;
+float icp_corr_distance_;
+float plane_cut_;
 
 // For Model Reconstruction
 float downsampling_size_;
@@ -248,6 +251,12 @@ void *start_viewer(void *threadid){
   viewer.registerKeyboardCallback (keyboardEventOccurred, (void*)&viewer);
   viewer.setCameraPosition(0.0308721, 0.0322514, -1.05573, 0.0785146, -0.996516, -0.0281465);
   viewer.setPosition(49, 540);
+  
+  // RECONSTRUCTION VIEWER
+  pcl::visualization::PCLVisualizer viewer2("Reconstruction Viewer");
+  viewer2.setCameraPosition(0.0308721, 0.0322514, -1.05573, 0.0785146, -0.996516, -0.0281465);
+  viewer2.setPosition(958, 52);
+  
   pcl::PointCloud<PointType>::Ptr cloud (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr highlight_cloud (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr model_cloud_ (new pcl::PointCloud<PointType> ());
@@ -255,8 +264,10 @@ void *start_viewer(void *threadid){
   pcl::PointCloud<PointType>::Ptr reconstructed_cloud_ (new pcl::PointCloud<PointType> ());
   pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler (highlight_cloud, 255, 0, 0);
   pcl::visualization::PointCloudColorHandlerCustom<PointType> transformed_color_handler_ (transformed_cloud_, 0, 0, 255);
+  pcl::visualization::PointCloudColorHandlerCustom<PointType> model_color_handler_ (model_cloud_, 255, 0, 0);
   
   bool first_cloud_ = true;
+  bool first_stitch_ = true;
   bool retrieve_cloud_ = false;
   bool retrieve_index_ = false;
   
@@ -309,10 +320,19 @@ void *start_viewer(void *threadid){
 		if (retrieve_cloud_){
 			if (first_cloud_){
 				std::cout << "Added new cloud to viewer" << std::endl;
+				// ADD SCENE CLOUD FORM KINECT
 				viewer.addPointCloud(cloud, "cloud");
+				
+				// ADD INITIAL HIGHLIGHT CLOUD
 				highlight_cloud->points.push_back(cloud->points[0]);
 				viewer.addPointCloud (highlight_cloud, highlight_color_handler, "Highlight Cloud");
 				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "Highlight Cloud");
+				
+				// ADD MODEL CLOUD
+				viewer.addPointCloud(model_cloud_, model_color_handler_, "model");
+				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "model");
+				
+				// ADD INITIAL TRANSFORMED CLOUD
 				transformed_cloud_->points.push_back(cloud->points[0]);
 				viewer.addPointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
 				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "transformed");
@@ -326,33 +346,86 @@ void *start_viewer(void *threadid){
 			}
 			
 			if(pose_found_){
+				viewer.removeAllShapes();
 				pcl::transformPointCloud (*model_cloud_, *transformed_cloud_, estimated_pose_);
 				viewer.updatePointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
+				// ADD CORRESPONDENCE LINE
+				std::vector<int> scene_corrs, database_corrs;
+				dm.getCorrespondence(scene_corrs, database_corrs);
+				for(int i=0; i<scene_corrs.size(); i++){
+					std::stringstream ss;
+					ss << i;
+					viewer.addLine<PointType, PointType> (model_cloud_->points[database_corrs[i]], highlight_cloud->points[scene_corrs[i]], 0, 255, 0, ss.str());
+				}
 			}
 			
 			// ADD VIEW TO RECONSTRUCTED CLOUD
 			if(pose_found_ && input_value_==1){
 				std::cout << "Adding view to reconstructed cloud" << std::endl;
 				ROS_DEBUG("Adding view to reconstructed cloud");
+				pcl::PointCloud<PointType>::Ptr add_cloud_ (new pcl::PointCloud<PointType> ()); 	
+				
+				// STEP 1: TRANSFORM THE SCENE TO THE REFERENCE DATUM
 				Eigen::Matrix4f pose_inverse_;
-				pcl::PointCloud<PointType>::Ptr add_cloud_ (new pcl::PointCloud<PointType> ()); 
 				pose_inverse_ = estimated_pose_.inverse();
-				pcl::transformPointCloud<PointType> (*cloud, *add_cloud_, pose_inverse_);
+				pcl::PointCloud<PointType>::Ptr datum_scene_cloud_ (new pcl::PointCloud<PointType> ()); 
+				pcl::transformPointCloud<PointType> (*cloud, *datum_scene_cloud_, pose_inverse_);
+				
+				// STEP 2: OBTAIN A REFERENCE PLANE
+				pcl::SACSegmentation<pcl::PointXYZ> seg;
+				pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
+				pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
+				seg.setOptimizeCoefficients (true);
+				seg.setModelType (pcl::SACMODEL_PLANE);
+				seg.setMethodType (pcl::SAC_RANSAC);
+				seg.setDistanceThreshold (0.005);
+				seg.setInputCloud (model_cloud_);
+				seg.segment (*inliers, *coefficients);
+				if (inliers->indices.size () == 0)
+				{
+					ROS_ERROR ("Could not estimate a planar model for the given dataset.");
+					return false;
+				}
+				else{
+					// STEP 3: REMOVE THE PLANE AND ALL POINTS BELOW IT
+					float z_plane;
+					
+					for (int i=0; i<=datum_scene_cloud_->points.size(); ++i)
+					{
+						 z_plane = (-coefficients->values[3] - coefficients->values[0]*cloud->points[i].x - coefficients->values[1]*cloud->points[i].y)/ coefficients->values[2];
+						 if (datum_scene_cloud_->points[i].z < z_plane - plane_cut_)
+							add_cloud_->points.push_back (datum_scene_cloud_->points[i]);
+					}        
+				}
+				// STEP 4: ADD CLOUD TO RECONSTRUCTED CLOUD
 				*reconstructed_cloud_ += *add_cloud_;
+				
+				// STEP 5: PERFORM ONE MORE DOWN SAMPLING
+				pcl::VoxelGrid<PointType> sor;
+				pcl::PointCloud<PointType>::Ptr downsampled_cloud_ (new pcl::PointCloud<PointType> ()); 
+				sor.setInputCloud (reconstructed_cloud_);
+				sor.setLeafSize (downsampling_size_,downsampling_size_,downsampling_size_);
+				sor.filter (*downsampled_cloud_);
+				reconstructed_cloud_ = downsampled_cloud_;
+				
 				input_value_=0;
+				
+				if(first_stitch_){
+					viewer2.addPointCloud(reconstructed_cloud_, "reconstruction");
+					first_stitch_=false;
+				}else{
+					viewer2.updatePointCloud(reconstructed_cloud_, "reconstruction");
+				}
+				viewer2.spinOnce();
 			}
 			
 			// SAVE RECONSTRUCTED CLOUD
 			if(input_value_==2){
 				std::cout << "Saving reconstructed cloud" << std::endl;
-				pcl::VoxelGrid<PointType> sor;
-				pcl::PointCloud<PointType>::Ptr downsampled_cloud_ (new pcl::PointCloud<PointType> ()); 
-				pcl::PCDWriter writer;
 				
-				sor.setInputCloud (reconstructed_cloud_);
-				sor.setLeafSize (downsampling_size_,downsampling_size_,downsampling_size_);
-				sor.filter (*downsampled_cloud_);
-				writer.write<PointType> (package_path_ + "/reconstruced.pcd", *downsampled_cloud_, false);
+				// STEP 2: WRITE CLOUD TO FILE
+				pcl::PCDWriter writer;
+				writer.write<PointType> (package_path_ + "/reconstruced.pcd", *reconstructed_cloud_, false);
 				input_value_=0;
 				stop_all_=true;
 			}
@@ -393,6 +466,9 @@ int main (int argc, char** argv){
   nh_private_.getParam("gc_size_", gc_size_);
   nh_private_.getParam("gc_threshold_", gc_threshold_);
   nh_private_.getParam("downsampling_size_", downsampling_size_);
+  nh_private_.getParam("icp_max_iter_", icp_max_iter_);
+  nh_private_.getParam("icp_corr_distance_", icp_corr_distance_);
+  nh_private_.getParam("plane_cut_", plane_cut_);
   nh_private_.getParam("debug_", debug_);
   
   if (debug_)
@@ -416,6 +492,7 @@ int main (int argc, char** argv){
 	focal_length = camera_matrix.at<double>(0,0);
 	dm.setParameters(2*camera_matrix.at<double>(1,2), 2*camera_matrix.at<double>(0,2), package_path_);
 	dm.setCameraParameters(camera_matrix, dist_coeffs);
+	dm.setIcpParameters(icp_max_iter_, icp_corr_distance_);
 	
   // DEBUGGING
   ROS_DEBUG_STREAM("Package Path: " << package_path_);

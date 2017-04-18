@@ -16,6 +16,7 @@
 
 // POSE ESTIMATION
 #include <pcl/recognition/cg/geometric_consistency.h>
+#include <pcl/registration/icp.h>
 
 // UTILITIES
 #include <iostream>
@@ -37,7 +38,10 @@ class DataManagement
 		cv::Mat dist_coeffs;
 		cv::Mat frame;
 		float aruco_size = 0.08/2;
-		float desc_match_thresh_ = 0.005;
+		float desc_match_thresh_;
+		int icp_max_iter_;
+		float icp_corr_distance_;
+		
 		cv::Ptr<cv::aruco::Dictionary> dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
 		std::vector <int> point_id;
 		std::vector <int> cloud_index;
@@ -66,6 +70,7 @@ class DataManagement
 		void setCameraParameters(cv::Mat c, cv::Mat d);
 		void setPixelPointReady();
 		void setDescMatchThreshold(float thresh);
+		void setIcpParameters(int iterations_, float threshold_);
 	
 		void loadTransform(cv::Mat t, cv::Mat r);
 		void loadFrame(cv::Mat f);
@@ -282,6 +287,12 @@ void DataManagement::setPixelPointReady(){
 
 void DataManagement::setDescMatchThreshold(float thresh){
 	desc_match_thresh_ = thresh;
+}
+
+void DataManagement::setIcpParameters(int iterations_, float threshold_){
+	icp_max_iter_=iterations_;
+	icp_corr_distance_=threshold_;
+	ROS_DEBUG("Data Manager: ICP Parameters Set");
 }
 
 void DataManagement::loadTransform(cv::Mat t, cv::Mat r){
@@ -593,11 +604,30 @@ bool DataManagement::computePoseEstimate(Eigen::Matrix4f &estimated_pose_, float
 			ROS_DEBUG("No instance found");
 		}
 		else{
-			// TEST: RETRIEVE FIRST ESTIMATE
-			ROS_DEBUG("Visualising estimated pose");
-			estimated_pose_ = rototranslations[0].block<4,4>(0,0);
-			pose_found_ = true;
+			// STEP 3: ICP
+			pcl::PointCloud<PointType>::Ptr icp_cloud_ (new pcl::PointCloud<PointType> ());
+			pcl::transformPointCloud (*model_cloud_, *icp_cloud_ , rototranslations[0]);
+			pcl::IterativeClosestPoint<PointType, PointType> icp;
+      icp.setMaximumIterations (icp_max_iter_);
+      icp.setMaxCorrespondenceDistance (icp_corr_distance_);
+      icp.setInputTarget (highlight_cloud_);
+      icp.setInputSource (icp_cloud_);
+      pcl::PointCloud<PointType>::Ptr icp_registered_ (new pcl::PointCloud<PointType>);
+      icp.align (*icp_registered_);
+      Eigen::Matrix4f icp_pose_ = rototranslations[0].block<4,4>(0,0);
+      if (icp.hasConverged ())
+      {
+        ROS_DEBUG_STREAM("Instance Aligned");
+				estimated_pose_ = icp.getFinalTransformation().cast<float>()*icp_pose_;
+				pose_found_ = true;
+      }
+      else
+      {
+        ROS_DEBUG("Not Aligned!");
+      }
+			ROS_DEBUG("ICP Completed");    
 		}
+		
 	}else{
 		ROS_DEBUG("Insufficient points to perform pose estimation");	
 	}
