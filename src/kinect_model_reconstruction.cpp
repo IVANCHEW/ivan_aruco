@@ -174,7 +174,6 @@ void cloud_callback(const sensor_msgs::PointCloud2& cloud_msg){
 
 void image_callback(const sensor_msgs::ImageConstPtr& msg){
 	if(next_frame_){
-		next_cloud_ = false;
 		try{
 			cv::Mat image;
 			bool marker_found;
@@ -279,7 +278,7 @@ void *start_viewer(void *threadid){
   bool retrieve_highlight_ = false;
   bool retrieve_markers_highlight_ = false;
   bool retrieve_index_ = false;
-  
+  std::vector<int> scene_corrs, database_corrs;
 	generateTestModelCloud(model_cloud_);
   dm.loadDatabaseDescriptors(model_cloud_);
   
@@ -303,6 +302,7 @@ void *start_viewer(void *threadid){
 			// DETECT POSE ESTIMATION MARKERS
 			ROS_DEBUG("Detecting Markers");
 			dm.detectMarkers(blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max_, contour_ratio_min_, contour_ratio_max_, aruco_detection_);
+			
 			ROS_DEBUG("Computing Descriptors");
 			dm.computeDescriptors();
 			ROS_DEBUG("Finding Matching Descriptors");
@@ -314,21 +314,11 @@ void *start_viewer(void *threadid){
 			retrieve_image_ = dm.getFrame(image_display_);
 			retrieve_cloud_ = dm.getCloud(cloud);
 			retrieve_highlight_ = dm.getHighlightCloud(highlight_cloud);
-			
 			// OBTAIN CORRESPONDENCE
 			if(pose_found_){
-				std::vector<int> scene_corrs, database_corrs;
+				ROS_DEBUG("Pose Found, Retrieving Correspondence");
 				dm.getCorrespondence(scene_corrs, database_corrs);
-				if(!first_cloud_){
-					viewer.removeAllShapes();
-				}
 				pcl::transformPointCloud (*model_cloud_, *transformed_cloud_, estimated_pose_);
-				// ADD CORRESPONDENCE LINE
-				for(int i=0; i<scene_corrs.size(); i++){
-					std::stringstream ss;
-					ss << i;
-					viewer.addLine<PointType, PointType> (model_cloud_->points[database_corrs[i]], highlight_cloud->points[scene_corrs[i]], 0, 255, 0, ss.str());
-				}
 			}
 			
 			dm.clearPixelPoints();
@@ -349,6 +339,7 @@ void *start_viewer(void *threadid){
 		
 		// DISPLAY IMAGE
 		if(retrieve_image_){
+			ROS_DEBUG("Displaying RGB Image");
 			last_retrieved_time_ = ros::Time::now().toSec();
 			cv::imshow("Image Viewer", image_display_);
 			if(cv::waitKey(30) >= 0) {
@@ -359,41 +350,51 @@ void *start_viewer(void *threadid){
 		
 		// DISPLAY CLOUD
 		if (retrieve_cloud_){
+			
 			if (first_cloud_){
-				ROS_INFO("Added new cloud to viewer");
+				ROS_INFO("Initialising New Clouds");
+				
 				// ADD SCENE CLOUD FORM KINECT
-				ROS_DEBUG("Adding First Scene");
+				ROS_DEBUG_STREAM("Adding First Scene, Cloud size: " << cloud->points.size());
 				viewer.addPointCloud(cloud, "cloud");
-				
-				// ADD INITIAL HIGHLIGHT CLOUD
-				ROS_DEBUG("Adding First Highlight");
-				highlight_cloud->points.push_back(cloud->points[0]);
-				viewer.addPointCloud (highlight_cloud, highlight_color_handler, "Highlight Cloud");
-				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "Highlight Cloud");
-				
+
 				// ADD MODEL CLOUD
-				ROS_DEBUG("Adding First Model Cloud");
+				ROS_DEBUG_STREAM("Adding First Model Cloud, Cloud size: " << model_cloud_->points.size());
 				viewer.addPointCloud(model_cloud_, model_color_handler_, "model");
 				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "model");
-				
-				// ADD INITIAL TRANSFORMED CLOUD
-				ROS_DEBUG("Adding Initial Transformed Cloud");
-				transformed_cloud_->points.push_back(cloud->points[0]);
-				viewer.addPointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
-				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "transformed");
+
 				first_cloud_ = false;
 			}
 			else{
+				ROS_DEBUG("Updating Viewer 1 Point Clouds");
+				
+				// UPDATING SCENE CLOUD FROM KINECT
 				viewer.updatePointCloud(cloud, "cloud");
-				if(retrieve_highlight_){
-					ROS_DEBUG("Updating Highlight cloud");
-					viewer.updatePointCloud(highlight_cloud, highlight_color_handler, "Highlight Cloud");
-				}
+				
 				if(pose_found_){
+					// UPDATING TRANSFORMED CLOUD
 					ROS_DEBUG("Updating Transformed Cloud");
-					viewer.updatePointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
+					if(!viewer.updatePointCloud(transformed_cloud_, transformed_color_handler_, "transformed")){
+						ROS_DEBUG("First Transform Cloud, adding...");
+						viewer.addPointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
+						viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "transformed");
+					}
+					
+					// UPDATING CORRESPONDENCE LINE
+					ROS_DEBUG("Updating Correspondence Lines");
+					viewer.removeAllShapes();
+					for(int i=0; i<scene_corrs.size(); i++){
+						std::stringstream ss;
+						ss << i;
+						viewer.addLine<PointType, PointType> (model_cloud_->points[database_corrs[i]], highlight_cloud->points[scene_corrs[i]], 0, 255, 0, ss.str());
+					}
 				}
 			}
+			
+			// SPIN VIEWER 1 AFTER UPDATE
+			ROS_DEBUG("Spinning Viewer 1");
+			viewer.spinOnce();
+			ROS_DEBUG("Viewer 1 Spun");
 			
 			// ADD VIEW TO RECONSTRUCTED CLOUD
 			if(pose_found_ && input_value_==1){
@@ -422,7 +423,6 @@ void *start_viewer(void *threadid){
 				if (inliers->indices.size () == 0)
 				{
 					ROS_ERROR ("Could not estimate a planar model for the given dataset.");
-					return false;
 				}
 				else{
 					// STEP 3: REMOVE THE PLANE AND ALL POINTS BELOW IT
@@ -466,7 +466,7 @@ void *start_viewer(void *threadid){
 				
 				if(first_marker_stitch_){
 					viewer2.addPointCloud(reconstructed_markers_cloud_, marker_color_handler_, "marker reconstruction");
-					viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "marker reconstruction");
+					viewer2.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "marker reconstruction");
 					first_marker_stitch_=false;
 				}else{
 					viewer2.updatePointCloud(reconstructed_markers_cloud_, marker_color_handler_, "marker reconstruction");
@@ -487,8 +487,6 @@ void *start_viewer(void *threadid){
 				stop_all_=true;
 			}
 			
-			ROS_DEBUG("Spinning Viewer 1");
-			viewer.spinOnce();
 		}
 
 		retrieve_cloud_ = false;
@@ -613,5 +611,3 @@ int main (int argc, char** argv){
   
   return 0;
 }
-
-
