@@ -37,6 +37,7 @@ class DataManagement
 		cv::Mat camera_matrix;
 		cv::Mat dist_coeffs;
 		cv::Mat frame;
+		cv::Mat annoted_frame_;
 		float aruco_size = 0.08/2;
 		float desc_match_thresh_;
 		int icp_max_iter_;
@@ -83,6 +84,7 @@ class DataManagement
 		
 		void getTransform(cv::Mat& t, cv::Mat& r);
 		bool getFrame(cv::Mat& f);
+		bool getRawFrame(cv::Mat& f);
 		bool getCloud(pcl::PointCloud<PointType>::Ptr &r);
 		bool getHighlightCloud(pcl::PointCloud<PointType>::Ptr &c);
 		bool getPixelPoint(cv::Point2f &p);
@@ -122,6 +124,7 @@ class DataManagement
 		
 		void clearPixelPoints();
 		void clearDescriptors();
+		void clearFrameAndCloud();
 		
 		bool statusTransform();
 		
@@ -140,6 +143,7 @@ class DataManagement
 		bool circleEstimation (cv::Mat& input_image, int blur_param_, int hsv_target_, int hsv_threshold_ , int contour_area_min_, int contour_area_max_,  double contour_ratio_min_, double contour_ratio_max_){
 			
 			int marker_count_ = 0;
+			annoted_frame_ = input_image.clone();
 			
 			//#1 Get Image Shape Parameters
 			//std::cout << "Step 1: Getting Image Shape Parameters" << std::endl;
@@ -189,7 +193,7 @@ class DataManagement
 							std::vector<std::vector<cv::Point> > con = std::vector<std::vector<cv::Point> >(1, contours[i]);
 							cv::Moments m = cv::moments(con[0], false);
 							cv::Point2f p = cv::Point2f((int)(m.m10/m.m00) , (int)(m.m01/m.m00));
-							cv::drawContours(input_image, con, -1, cv::Scalar(0, 255, 0), 1, 8);
+							cv::drawContours(annoted_frame_, con, -1, cv::Scalar(0, 255, 0), 1, 8);
 							cv::circle(input_image, p, 1, cv::Scalar(0, 0, 255), 1, 8, 0);
 							std::stringstream convert;
 							convert << marker_count_;
@@ -383,8 +387,16 @@ void DataManagement::getTransform(cv::Mat& t, cv::Mat& r){
 
 bool DataManagement::getFrame(cv::Mat& f){
 	if (image_ready){
+		f = annoted_frame_.clone();
+		return true;
+	}
+	else
+		return false;
+}
+
+bool DataManagement::getRawFrame(cv::Mat& f){
+	if (image_ready){
 		f = frame.clone();
-		image_ready = false;
 		return true;
 	}
 	else
@@ -394,7 +406,6 @@ bool DataManagement::getFrame(cv::Mat& f){
 bool DataManagement::getCloud(pcl::PointCloud<PointType>::Ptr &r){
 	if (cloud_ready){
 		r = cloud;
-		cloud_ready = false;
 		return true;
 	}
 	else{
@@ -684,6 +695,11 @@ void DataManagement::clearDescriptors(){
 	ROS_DEBUG("Descriptors cleared");
 }
 
+void DataManagement::clearFrameAndCloud(){
+	image_ready = false;
+	cloud_ready = false;
+}
+
 bool DataManagement::statusTransform(){
 	return transformation_ready;
 }
@@ -696,7 +712,7 @@ void DataManagement::labelMarkers(){
 				convert << correspondence_database_[i];
 				std::string s;
 				s = convert.str();
-				cv::putText(frame, s, pixel_position_[j], CV_FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255), 2, 8, false);
+				cv::putText(annoted_frame_, s, pixel_position_[j], CV_FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 0, 255), 2, 8, false);
 			}
 		}
 	}

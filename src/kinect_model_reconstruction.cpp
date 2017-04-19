@@ -71,6 +71,7 @@ bool next_cloud_ = true;
 std::string cloud_topic_, image_topic_;
 int blur_param_;
 int hsv_target_;
+int hsv_target2_;
 int hsv_threshold_;
 int contour_area_min_;
 int contour_area_max_;
@@ -85,6 +86,8 @@ float desc_match_thresh_;
 int icp_max_iter_;
 float icp_corr_distance_;
 float plane_cut_;
+int sor_mean_;
+float sor_thresh_;
 
 // For Model Reconstruction
 float downsampling_size_;
@@ -259,16 +262,22 @@ void *start_viewer(void *threadid){
   
   pcl::PointCloud<PointType>::Ptr cloud (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr highlight_cloud (new pcl::PointCloud<PointType> ());
+  pcl::PointCloud<PointType>::Ptr highlight_markers_cloud_ (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr model_cloud_ (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr transformed_cloud_ (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr reconstructed_cloud_ (new pcl::PointCloud<PointType> ());
+  pcl::PointCloud<PointType>::Ptr reconstructed_markers_cloud_ (new pcl::PointCloud<PointType> ());
   pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler (highlight_cloud, 255, 0, 0);
   pcl::visualization::PointCloudColorHandlerCustom<PointType> transformed_color_handler_ (transformed_cloud_, 0, 0, 255);
   pcl::visualization::PointCloudColorHandlerCustom<PointType> model_color_handler_ (model_cloud_, 255, 0, 0);
-  
+  pcl::visualization::PointCloudColorHandlerCustom<PointType> marker_color_handler_ (reconstructed_markers_cloud_, 255, 0, 0);
+ 
   bool first_cloud_ = true;
   bool first_stitch_ = true;
+  bool first_marker_stitch_ = true;
   bool retrieve_cloud_ = false;
+  bool retrieve_highlight_ = false;
+  bool retrieve_markers_highlight_ = false;
   bool retrieve_index_ = false;
   
 	generateTestModelCloud(model_cloud_);
@@ -279,6 +288,7 @@ void *start_viewer(void *threadid){
 		current_time_ = ros::Time::now().toSec();
 		
 		Eigen::Matrix4f estimated_pose_;
+		
 		bool pose_found_;
 		
 		// NODE TERMINATION CONDITION
@@ -303,7 +313,38 @@ void *start_viewer(void *threadid){
 			ROS_DEBUG("Retrieving Image and Cloud");
 			retrieve_image_ = dm.getFrame(image_display_);
 			retrieve_cloud_ = dm.getCloud(cloud);
+			retrieve_highlight_ = dm.getHighlightCloud(highlight_cloud);
+			
+			// OBTAIN CORRESPONDENCE
+			if(pose_found_){
+				std::vector<int> scene_corrs, database_corrs;
+				dm.getCorrespondence(scene_corrs, database_corrs);
+				if(!first_cloud_){
+					viewer.removeAllShapes();
+				}
+				pcl::transformPointCloud (*model_cloud_, *transformed_cloud_, estimated_pose_);
+				// ADD CORRESPONDENCE LINE
+				for(int i=0; i<scene_corrs.size(); i++){
+					std::stringstream ss;
+					ss << i;
+					viewer.addLine<PointType, PointType> (model_cloud_->points[database_corrs[i]], highlight_cloud->points[scene_corrs[i]], 0, 255, 0, ss.str());
+				}
+			}
+			
+			dm.clearPixelPoints();
+			dm.clearDescriptors();
+			
+			// DETECT RECONSTRUCTED MARKERS
+			ROS_DEBUG("Detecting Reconstructed Markers");
+			dm.detectMarkers(blur_param_, hsv_target2_, hsv_threshold_ , contour_area_min_, contour_area_max_, contour_ratio_min_, contour_ratio_max_, aruco_detection_);
+			ROS_DEBUG("Retrieving Marker Highlights");
+			retrieve_markers_highlight_ = dm.getHighlightCloud(highlight_markers_cloud_);
+			ROS_DEBUG("Clearing Variables");
+			dm.clearPixelPoints();
+			dm.clearDescriptors();
+			dm.clearFrameAndCloud();
 			next_frame_ = true;
+			ROS_DEBUG("End of Image Processing");
 		}
 		
 		// DISPLAY IMAGE
@@ -319,20 +360,24 @@ void *start_viewer(void *threadid){
 		// DISPLAY CLOUD
 		if (retrieve_cloud_){
 			if (first_cloud_){
-				std::cout << "Added new cloud to viewer" << std::endl;
+				ROS_INFO("Added new cloud to viewer");
 				// ADD SCENE CLOUD FORM KINECT
+				ROS_DEBUG("Adding First Scene");
 				viewer.addPointCloud(cloud, "cloud");
 				
 				// ADD INITIAL HIGHLIGHT CLOUD
+				ROS_DEBUG("Adding First Highlight");
 				highlight_cloud->points.push_back(cloud->points[0]);
 				viewer.addPointCloud (highlight_cloud, highlight_color_handler, "Highlight Cloud");
 				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "Highlight Cloud");
 				
 				// ADD MODEL CLOUD
+				ROS_DEBUG("Adding First Model Cloud");
 				viewer.addPointCloud(model_cloud_, model_color_handler_, "model");
 				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "model");
 				
 				// ADD INITIAL TRANSFORMED CLOUD
+				ROS_DEBUG("Adding Initial Transformed Cloud");
 				transformed_cloud_->points.push_back(cloud->points[0]);
 				viewer.addPointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
 				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "transformed");
@@ -340,36 +385,29 @@ void *start_viewer(void *threadid){
 			}
 			else{
 				viewer.updatePointCloud(cloud, "cloud");
-				if(dm.getHighlightCloud(highlight_cloud)){
+				if(retrieve_highlight_){
+					ROS_DEBUG("Updating Highlight cloud");
 					viewer.updatePointCloud(highlight_cloud, highlight_color_handler, "Highlight Cloud");
 				}
-			}
-			
-			if(pose_found_){
-				viewer.removeAllShapes();
-				pcl::transformPointCloud (*model_cloud_, *transformed_cloud_, estimated_pose_);
-				viewer.updatePointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
-				// ADD CORRESPONDENCE LINE
-				std::vector<int> scene_corrs, database_corrs;
-				dm.getCorrespondence(scene_corrs, database_corrs);
-				for(int i=0; i<scene_corrs.size(); i++){
-					std::stringstream ss;
-					ss << i;
-					viewer.addLine<PointType, PointType> (model_cloud_->points[database_corrs[i]], highlight_cloud->points[scene_corrs[i]], 0, 255, 0, ss.str());
+				if(pose_found_){
+					ROS_DEBUG("Updating Transformed Cloud");
+					viewer.updatePointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
 				}
 			}
 			
 			// ADD VIEW TO RECONSTRUCTED CLOUD
 			if(pose_found_ && input_value_==1){
-				std::cout << "Adding view to reconstructed cloud" << std::endl;
-				ROS_DEBUG("Adding view to reconstructed cloud");
+				ROS_INFO("Adding view to reconstructed cloud");
 				pcl::PointCloud<PointType>::Ptr add_cloud_ (new pcl::PointCloud<PointType> ()); 	
+				pcl::PointCloud<PointType>::Ptr add_cloud_filtered_ (new pcl::PointCloud<PointType> ()); 	
+				pcl::PointCloud<PointType>::Ptr add_markers_cloud_ (new pcl::PointCloud<PointType> ()); 	
 				
 				// STEP 1: TRANSFORM THE SCENE TO THE REFERENCE DATUM
 				Eigen::Matrix4f pose_inverse_;
 				pose_inverse_ = estimated_pose_.inverse();
 				pcl::PointCloud<PointType>::Ptr datum_scene_cloud_ (new pcl::PointCloud<PointType> ()); 
 				pcl::transformPointCloud<PointType> (*cloud, *datum_scene_cloud_, pose_inverse_);
+				pcl::transformPointCloud<PointType> (*highlight_markers_cloud_, *add_markers_cloud_, pose_inverse_);
 				
 				// STEP 2: OBTAIN A REFERENCE PLANE
 				pcl::SACSegmentation<pcl::PointXYZ> seg;
@@ -397,10 +435,19 @@ void *start_viewer(void *threadid){
 							add_cloud_->points.push_back (datum_scene_cloud_->points[i]);
 					}        
 				}
-				// STEP 4: ADD CLOUD TO RECONSTRUCTED CLOUD
-				*reconstructed_cloud_ += *add_cloud_;
 				
-				// STEP 5: PERFORM ONE MORE DOWN SAMPLING
+				// STEP 4: PERFORM STATISTICAL OUTLIER FILTER
+				pcl::StatisticalOutlierRemoval<pcl::PointXYZ> outlier_filter_;
+				outlier_filter_.setInputCloud (add_cloud_);
+				outlier_filter_.setMeanK (sor_mean_);
+				outlier_filter_.setStddevMulThresh (sor_thresh_);
+				outlier_filter_.filter (*add_cloud_filtered_);
+				
+				// STEP 5: ADD CLOUD TO RECONSTRUCTED CLOUD
+				*reconstructed_cloud_ += *add_cloud_filtered_;
+				*reconstructed_markers_cloud_ += *add_markers_cloud_;
+				
+				// STEP 6: PERFORM DOWN SAMPLING
 				pcl::VoxelGrid<PointType> sor;
 				pcl::PointCloud<PointType>::Ptr downsampled_cloud_ (new pcl::PointCloud<PointType> ()); 
 				sor.setInputCloud (reconstructed_cloud_);
@@ -416,28 +463,38 @@ void *start_viewer(void *threadid){
 				}else{
 					viewer2.updatePointCloud(reconstructed_cloud_, "reconstruction");
 				}
+				
+				if(first_marker_stitch_){
+					viewer2.addPointCloud(reconstructed_markers_cloud_, marker_color_handler_, "marker reconstruction");
+					viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "marker reconstruction");
+					first_marker_stitch_=false;
+				}else{
+					viewer2.updatePointCloud(reconstructed_markers_cloud_, marker_color_handler_, "marker reconstruction");
+				}
+				
 				viewer2.spinOnce();
 			}
 			
 			// SAVE RECONSTRUCTED CLOUD
 			if(input_value_==2){
-				std::cout << "Saving reconstructed cloud" << std::endl;
+				ROS_INFO("Saving reconstructed cloud");
 				
 				// STEP 2: WRITE CLOUD TO FILE
 				pcl::PCDWriter writer;
 				writer.write<PointType> (package_path_ + "/reconstruced.pcd", *reconstructed_cloud_, false);
+				writer.write<PointType> (package_path_ + "/markers.pcd", *reconstructed_markers_cloud_, false);
 				input_value_=0;
 				stop_all_=true;
 			}
 			
-			dm.clearPixelPoints();
-			dm.clearDescriptors();
+			ROS_DEBUG("Spinning Viewer 1");
 			viewer.spinOnce();
 		}
 
 		retrieve_cloud_ = false;
 		retrieve_image_ = false;
 		retrieve_index_ = false;
+		ROS_DEBUG("End of Viewer Loop");
 	}
 	std::cout << "Exiting Image Viewer Thread" << std::endl;
 	pthread_exit(NULL);
@@ -454,6 +511,7 @@ int main (int argc, char** argv){
     
   nh_private_.getParam("blur_param_", blur_param_);
   nh_private_.getParam("hsv_target_", hsv_target_);
+  nh_private_.getParam("hsv_target2_", hsv_target2_);
   nh_private_.getParam("hsv_threshold_", hsv_threshold_);
   nh_private_.getParam("contour_area_min_", contour_area_min_);
   nh_private_.getParam("contour_area_max_", contour_area_max_);
@@ -469,6 +527,8 @@ int main (int argc, char** argv){
   nh_private_.getParam("icp_max_iter_", icp_max_iter_);
   nh_private_.getParam("icp_corr_distance_", icp_corr_distance_);
   nh_private_.getParam("plane_cut_", plane_cut_);
+  nh_private_.getParam("sor_mean_", sor_mean_);
+  nh_private_.getParam("sor_thresh_", sor_thresh_);
   nh_private_.getParam("debug_", debug_);
   
   if (debug_)
@@ -523,17 +583,17 @@ int main (int argc, char** argv){
   void *status;
   
   // PREPARE VIEWER THREAD
-  thread_error_ = pthread_create(&thread[i], NULL, start_viewer, (void *)i);
-  if (thread_error_){
-    ROS_ERROR_STREAM("Error:unable to create viewer thread," << thread_error_);
-    exit(-1);
-  }
-
-  // PREPARE ROS CALLBACK
-  i++;
-  thread_error_ = pthread_create(&thread[i], NULL, start_ros_callback, (void *)i);
+	thread_error_ = pthread_create(&thread[i], NULL, start_ros_callback, (void *)i);
   if (thread_error_){
     ROS_ERROR_STREAM("Error:unable to create ROS Callback thread," << thread_error_);
+    exit(-1);
+  }
+  
+  // PREPARE ROS CALLBACK
+  i++;
+	thread_error_ = pthread_create(&thread[i], NULL, start_viewer, (void *)i);
+  if (thread_error_){
+    ROS_ERROR_STREAM("Error:unable to create viewer thread," << thread_error_);
     exit(-1);
   }
 

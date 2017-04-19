@@ -3,6 +3,7 @@
   <arg name="debug_"  					default="False" />  
   <arg name="blur_param_"			default="1" />
   <arg name="hsv_target_"			default="145" />
+  <arg name="hsv_target2_"		default="100" />
   <arg name="hsv_threshold_"	default="10" />
   <arg name="contour_area_min_"	default="50" />
   <arg name="contour_area_max_"	default="500" />
@@ -18,10 +19,13 @@
 	<arg name="icp_max_iter_"				default="10" />
 	<arg name="icp_corr_distance_"	default="0.003" />
 	<arg name="plane_cut_"					default="0.01" />
+	<arg name="sor_mean_"						default="50"/>
+	<arg name="sor_thresh_"					default="1.0"/>
 	
   <node name="kinect_model_reconstruction" pkg="ivan_aruco" type="kinect_model_reconstruction" output="screen"> 
 		<param name="blur_param_"          	type="int"   	value="$(arg blur_param_)"/> 
 		<param name="hsv_target_"          	type="int"   	value="$(arg hsv_target_)"/> 
+		<param name="hsv_target2_"					type="int"		value="$(arg hsv_target2_)"/>
 		<param name="hsv_threshold_"   			type="int"   	value="$(arg hsv_threshold_)"/> 
 		<param name="contour_area_min_"    	type="int"   	value="$(arg contour_area_min_)"/> 
 		<param name="contour_area_max_"     type="int"   	value="$(arg contour_area_max_)"/> 
@@ -38,6 +42,8 @@
 		<param name="icp_max_iter_"					type="int"				value="$(arg icp_max_iter_)" />
 		<param name="icp_corr_distance_"		type="double"			value="$(arg icp_corr_distance_)" />
 		<param name="plane_cut_"						type="double"			value="$(arg plane_cut_)" />	
+		<param name="sor_mean_"							type="int"				value="$(arg sor_mean_)"/>
+		<param name="sor_thresh_"						type="double"			value="$(arg sor_thresh_)"/>
 	</node>
 	
 </launch>
