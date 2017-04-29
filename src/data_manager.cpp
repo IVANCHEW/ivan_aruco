@@ -42,6 +42,8 @@ class DataManagement
 		float desc_match_thresh_;
 		int icp_max_iter_;
 		float icp_corr_distance_;
+		int min_marker_ = 3;
+		int reduced_resolution_factor_;
 		
 		cv::Ptr<cv::aruco::Dictionary> dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
 		std::vector <int> point_id;
@@ -51,6 +53,7 @@ class DataManagement
 		std::vector < std::vector < float > > feature_desc, database_desc_, test_desc_;
 		std::vector < std::vector < int > > feature_desc_index, database_desc_index_, test_desc_index_;
 		std::vector <cv::Point2f> pixel_position_;
+		std::vector <int> reduced_resolution_x_range_, reduced_resolution_y_range_;
 		std::string package_path_;
 		int index_count = 0;
 		int frame_height, frame_width;
@@ -63,6 +66,7 @@ class DataManagement
 		bool camera_parameters_ready = false;
 		bool database_desc_ready_ = false;
 		bool highlight_cloud_ready_ = false;
+		bool reduced_resolution_ = false;
 		pcl::PointCloud<PointType>::Ptr cloud, highlight_cloud_, model_cloud_;
 		
 	public:
@@ -72,7 +76,9 @@ class DataManagement
 		void setPixelPointReady();
 		void setDescMatchThreshold(float thresh);
 		void setIcpParameters(int iterations_, float threshold_);
-	
+		void setMinMarkers(int i);
+		void setReducedResolution(int f);
+		
 		void loadTransform(cv::Mat t, cv::Mat r);
 		void loadFrame(cv::Mat f);
 		void loadCloud(pcl::PointCloud<PointType>::Ptr &c);
@@ -208,7 +214,7 @@ class DataManagement
 			//~ cv::imwrite(package_path_ + "/pose_estimation_frames/contour_marked_image.png", input_image);
 			
 			//#8 Return True if sufficient markers are present to make pose estimate
-			if (marker_count_ >= 3){
+			if (marker_count_ >= min_marker_){
 				setPixelPointReady();
 				return true;
 			}else{
@@ -259,13 +265,19 @@ class DataManagement
 }
 
 		void computeHighlightCloud(){
-			ROS_DEBUG("Computing Highlight Cloud");
+			ROS_DEBUG("DM: Computing Highlight Cloud");
 			pcl::PointCloud<PointType>::Ptr c (new pcl::PointCloud<PointType> ());
+			ROS_DEBUG_STREAM("DM: Cloud index size: " << cloud_index.size());
 			for(int i=0; i<cloud_index.size(); i++){
-				c->points.push_back(cloud->points[cloud_index[i]]);
+				if(cloud->points[cloud_index[i]].x>0){
+					c->points.push_back(cloud->points[cloud_index[i]]);
+				}else{
+					ROS_DEBUG("DM: NAN point, not added to highlight cloud");
+				}
 			}
 			highlight_cloud_ = c;
 			highlight_cloud_ready_ = true;
+			ROS_DEBUG("DM: Finish computing highlight cloud");
 		}
 };
 
@@ -299,6 +311,23 @@ void DataManagement::setIcpParameters(int iterations_, float threshold_){
 	ROS_DEBUG("Data Manager: ICP Parameters Set");
 }
 
+void DataManagement::setMinMarkers(int i){
+	min_marker_ = i;
+}
+
+void DataManagement::setReducedResolution(int i){
+	reduced_resolution_ = true;
+	reduced_resolution_factor_ = i;
+	reduced_resolution_x_range_.push_back(-1);
+	reduced_resolution_x_range_.push_back(0);
+	reduced_resolution_x_range_.push_back(1);
+	reduced_resolution_x_range_.push_back(0);
+	reduced_resolution_y_range_.push_back(0);
+	reduced_resolution_y_range_.push_back(-1);
+	reduced_resolution_y_range_.push_back(0);
+	reduced_resolution_y_range_.push_back(1);
+}
+
 void DataManagement::loadTransform(cv::Mat t, cv::Mat r){
 	tvec = t;
 	rvec = r;
@@ -322,11 +351,33 @@ void DataManagement::loadCloud(pcl::PointCloud<PointType>::Ptr &c){
 // Also computes corresponding cloud index with the given pixel position
 void DataManagement::loadPixelPoint(cv::Point2f p, int id){
 	//~ std::cout << "Loading pixel point " << index_count << " . x: " << p.x << ", y: " << p.y << std::endl;
-	int index_temp = (p.y) * frame_width + p.x;
-	cloud_index.push_back(index_temp);
-	point_id.push_back(id);
-	pixel_position_.push_back(p);
-	index_count++;
+	int index_temp;
+	
+	if (!reduced_resolution_){
+		index_temp = (p.y) * frame_width + p.x;
+		cloud_index.push_back(index_temp);
+		point_id.push_back(id);
+		pixel_position_.push_back(p);
+		index_count++;
+	}
+	else{
+		int temp_width_ = p.x/reduced_resolution_factor_;
+		int temp_height_ = p.y/reduced_resolution_factor_;
+		index_temp = temp_height_ * frame_width / reduced_resolution_factor_ + temp_width_;
+		ROS_DEBUG_STREAM("Original point: " << p.x << " x " << p.y << " Converted: " << temp_width_ << " x " << temp_height_ << " Index: " << index_temp);
+		cloud_index.push_back(index_temp);
+		point_id.push_back(id);
+		pixel_position_.push_back(p);
+		index_count++;
+		//~ for (int i=0; i<reduced_resolution_y_range_.size(); i++){
+			//~ index_temp = (temp_height_ + reduced_resolution_y_range_[i])* frame_width / reduced_resolution_factor_ + (temp_width_ + reduced_resolution_x_range_[i]);
+			//~ cloud_index.push_back(index_temp);
+			//~ point_id.push_back(id);
+			//~ pixel_position_.push_back(p);
+			//~ index_count++;
+		//~ }
+	}
+
 }
 
 void DataManagement::loadDatabaseDescriptors(std::vector < std::vector < int > > index_vector, std::vector < std::vector < float > > element_vector){

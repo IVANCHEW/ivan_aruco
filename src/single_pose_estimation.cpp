@@ -304,7 +304,10 @@ int main (int argc, char** argv){
   ros::NodeHandle nh_;
   ros::NodeHandle nh_private_("~");
   std::string image_path_, cloud_path_;
-  
+	ROS_INFO("Debug Mode ON");
+	pcl::console::setVerbosityLevel(pcl::console::L_INFO);
+	ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Debug);
+		
   // VARIABLE INITIALISATION
   package_path_ = ros::package::getPath("ivan_aruco");   
 	nh_private_.getParam("image_path_", image_path_);
@@ -324,7 +327,8 @@ int main (int argc, char** argv){
   loadCalibrationMatrix(camera_name);
 	focal_length = camera_matrix.at<double>(0,0);
 	
-	dm.setParameters(2*camera_matrix.at<double>(1,2), 2*camera_matrix.at<double>(0,2),package_path_);
+	//~ dm.setParameters(2*camera_matrix.at<double>(1,2), 2*camera_matrix.at<double>(0,2),package_path_);
+	dm.setParameters(540, 960,package_path_);
 	
   // DEBUGGING
   std::cout << "Package Path: " << package_path_ << std::endl;
@@ -350,10 +354,11 @@ int main (int argc, char** argv){
 	
 	//ADD IMAGE
 	std::cout << "Adding Image" << std::endl;
-	cv::Mat image;
+	cv::Mat image, resize_image;
 	std::cout << "Reading image from: " << package_path_  + image_path_ << std::endl;
 	image = cv::imread(package_path_ + image_path_, CV_LOAD_IMAGE_COLOR); 
-	dm.loadFrame(image);
+	std::cout << "Image size: " << image.rows << " x " << image.cols << std::endl;
+	//~ dm.loadFrame(image);
 	
 	//ADD POINT CLOUD
 	std::cout << "Adding Point Cloud" << std::endl;
@@ -361,7 +366,36 @@ int main (int argc, char** argv){
 	std::cout << "Reading cloud from: " << package_path_  + cloud_path_ << std::endl;
 	pcl::PointCloud<PointType>::Ptr cloud_load(new pcl::PointCloud<PointType>);
 	reader.read (package_path_ + cloud_path_, *cloud_load);
+	std::cout << "Cloud size: " << cloud_load->points.size() << std::endl;
 	dm.loadCloud(cloud_load);		
+	
+	//TEMP: RESIZE IMAGE AND REMOVE NAN PIXELS
+	ROS_DEBUG_STREAM("Number of points in point cloud: " << cloud_load->points.size());
+	int valid_count_=0;
+	int scale_ = 4;
+	for (int i=0; i<cloud_load->points.size(); i++){
+		//WHEN POINT IS NAN
+		if (cloud_load->points[i].x>0){
+			valid_count_++;
+		}else{
+			int pixel_x = i % (image.cols/scale_);
+			int pixel_y = i / (image.cols/scale_);
+			for(int j=0; j<scale_; j++){
+				for(int k=0; k<scale_; k++){
+					int scaled_x_ = pixel_x*scale_ + j;
+					int scaled_y_ = pixel_y*scale_ + k;
+					cv::Vec3b color = image.at<cv::Vec3b>(cv::Point(scaled_x_,scaled_y_));
+					color[0] = 0;
+					color[1] = 0;
+					color[2] = 0;
+					image.at<cv::Vec3b>(cv::Point(scaled_x_,scaled_y_)) = color;
+				}
+			}
+
+		}
+	}
+	ROS_DEBUG_STREAM("Number of valid points: " << valid_count_);	
+	dm.loadFrame(image);
 	
 	//COMPUTE DESCRIPTORS
 	std::cout << "Begin Descriptor Computation" << std::endl;
@@ -373,8 +407,10 @@ int main (int argc, char** argv){
 		arucoPoseEstimation(image, 0, tvec, rvec, camera_matrix, dist_coeffs, true);
 	}else{
 		std::cout << "Using Circular Marker Detection" << std::endl;
+		dm.setReducedResolution(4);
+		dm.setMinMarkers(1);
 		dm.detectMarkers(blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max_, contour_ratio_min_, contour_ratio_max_, false);
-		dm.computeDescriptors();
+		//~ dm.computeDescriptors();
 	}
 	
 	full_test_end_ = ros::Time::now().toSec();
@@ -388,21 +424,22 @@ int main (int argc, char** argv){
 	int highlight_size_ = 0;
 	int cloud_index;
   pcl::PointCloud<PointType>::Ptr cloud_a;
-  pcl::PointCloud<PointType>::Ptr	highlight_cloud (new pcl::PointCloud<PointType>);
-  pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler (highlight_cloud, 255, 0, 0);
+  pcl::PointCloud<PointType>::Ptr	highlight_cloud;
   retrieve_cloud_ = dm.getCloud(cloud_a);
   
   if (retrieve_cloud_){
 		viewer.addPointCloud(cloud_a, "cloud_a");
-		retrieve_index_ = dm.getPointIndexSize(highlight_size_);
-		std::cout << "Highlight points size: " << highlight_size_ << std::endl;
+		//~ retrieve_index_ = dm.getPointIndexSize(highlight_size_);
+		retrieve_index_ = dm.getHighlightCloud(highlight_cloud);
+		
 		if (retrieve_index_){
-			for (int n=0 ; n < highlight_size_ ; n++){
-				dm.getPointCloudIndex(cloud_index, n);
-				highlight_cloud->points.push_back(cloud_a->points[cloud_index]);
-			}
+			ROS_DEBUG_STREAM("Highlight points size: " << highlight_cloud->points.size());
+			pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler (highlight_cloud, 255, 0, 0);
 			viewer.addPointCloud (highlight_cloud, highlight_color_handler, "Highlight Cloud");
 			viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "Highlight Cloud");
+		}
+		else{
+			ROS_DEBUG("No highlight cloud");
 		}
 	}
 
@@ -412,6 +449,7 @@ int main (int argc, char** argv){
   bool retrieve_image_ = false;
   retrieve_image_ = dm.getFrame(image_display_);
   if(retrieve_image_){
+		//~ cv::imshow("Resize View" , image);
 		cv::imshow("Image Viewer", image_display_);
 		if(cv::waitKey(0) >= 0){
 			std::cout << "Key out" << std::endl;
