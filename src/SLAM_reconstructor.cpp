@@ -268,7 +268,7 @@ int main (int argc, char** argv){
 		dm.clearFrameAndCloud();
 	}
 	
-	// OUTLIER FILTERING
+	// CLUSTER FILTERING
 	pcl::search::KdTree<PointType>::Ptr tree (new pcl::search::KdTree<PointType>);
 	tree->setInputCloud (reconstructed_markers_cloud_);
 	std::vector<pcl::PointIndices> cluster_indices;
@@ -281,15 +281,52 @@ int main (int argc, char** argv){
 	ec.extract (cluster_indices);
 	
 	pcl::PointCloud<PointType>::Ptr cloud_cluster (new pcl::PointCloud<PointType>);
+	std::vector< std::vector<float > > center_coordinates_;
+	int centroid_number_=0;
 	for (int i = 0; i < cluster_indices.size() ; i++){
 		ROS_DEBUG_STREAM("Cluster " << i << " size: " << cluster_indices[i].indices.size());
-		//~ //Filtering Criteria
+		//Filtering Criteria
 		if (cluster_indices[i].indices.size() > clus_size_min_ && cluster_indices[i].indices.size() < clus_size_max_){
+			// FIND CENTER OF EACH CLUSTER AND ADD CLUSTER TO POINT CLOUD
+			int n = cluster_indices[i].indices.size();
+			ROS_DEBUG_STREAM("Number of points: " << n);
+			float sum_x_=0;
+			float sum_y_=0;
+			float sum_z_=0;
 			for (int j = 0 ; j < cluster_indices[i].indices.size() ; j++) {
+				ROS_DEBUG_STREAM("Summing individual point moments, x: " << reconstructed_markers_cloud_->points[cluster_indices[i].indices[j]].x);
+				sum_x_ = sum_x_ + reconstructed_markers_cloud_->points[cluster_indices[i].indices[j]].x;
+				sum_y_ = sum_y_ + reconstructed_markers_cloud_->points[cluster_indices[i].indices[j]].y;
+				sum_z_ = sum_z_ + reconstructed_markers_cloud_->points[cluster_indices[i].indices[j]].z;
+				ROS_DEBUG("Pushing point into cluster cloud");
 				cloud_cluster->points.push_back (reconstructed_markers_cloud_->points[cluster_indices[i].indices[j]]); 
 			}
+			ROS_DEBUG("Center coordinate vector pushback");
+			center_coordinates_.push_back(std::vector<float>());
+			ROS_DEBUG_STREAM("Storing values into center coordinate vector, x: " << sum_x_/n);
+			center_coordinates_[centroid_number_].push_back(sum_x_/n);
+			center_coordinates_[centroid_number_].push_back(sum_y_/n);
+			center_coordinates_[centroid_number_].push_back(sum_z_/n);
+			centroid_number_++;
+			//~ sum_x_ = sum_x_/n;
+			//~ sum_y_ = sum_y_/n;
+			//~ sum_z_ = sum_z_/n;
 		}
 	}
+	
+	ROS_DEBUG_STREAM("Creating Point Cloud with centroid values, size: " << center_coordinates_.size());
+	pcl::PointCloud<PointType>::Ptr cloud_cluster_center_ (new pcl::PointCloud<PointType>);
+	cloud_cluster_center_->width = center_coordinates_.size();
+	cloud_cluster_center_->height = 1;
+	cloud_cluster_center_->is_dense = false;
+	cloud_cluster_center_->points.resize(cloud_cluster_center_->width * cloud_cluster_center_->height);
+	ROS_DEBUG("Updating Point Cloud with centroid values");
+	for(int i=0; i<centroid_number_; i++){
+		cloud_cluster_center_->points[i].x = center_coordinates_[i][0];
+		cloud_cluster_center_->points[i].y = center_coordinates_[i][1];
+		cloud_cluster_center_->points[i].z = center_coordinates_[i][2];
+	}
+	
 	
 	ROS_DEBUG_STREAM("PointCloud representing the Cluster: " << cloud_cluster->points.size () << " data points.");
 	cloud_cluster->width = cloud_cluster->points.size ();
@@ -302,7 +339,10 @@ int main (int argc, char** argv){
 	viewer.addPointCloud(reconstructed_cloud_, "Reconstructed Model");
 	pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler (reconstructed_markers_cloud_, 255, 0, 0);
 	viewer.addPointCloud (reconstructed_markers_cloud_, highlight_color_handler, "Highlight Cloud");
-	viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "Highlight Cloud");
+	viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "Highlight Cloud");
+	pcl::visualization::PointCloudColorHandlerCustom<PointType> centroid_color_handler (cloud_cluster_center_, 0, 255, 0);
+	viewer.addPointCloud (cloud_cluster_center_, centroid_color_handler, "Centroid Cloud");
+	viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "Centroid Cloud");
 	
 	while (!viewer.wasStopped ()){
 		viewer.spinOnce();
