@@ -81,3 +81,8 @@ add_executable(SLAM_reconstructor src/SLAM_reconstructor.cpp)
 target_link_libraries(SLAM_reconstructor yaml-cpp ${PCL_LIBRARIES} ${catkin_LIBRARIES})
 add_dependencies(SLAM_reconstructor ${catkin_EXPORTED_TARGETS})
 
+add_executable(kinect_projection src/kinect_projection.cpp)
+target_link_libraries(kinect_projection yaml-cpp ${PCL_LIBRARIES} ${catkin_LIBRARIES})
+add_dependencies(kinect_projection ${catkin_EXPORTED_TARGETS})
+
+

@@ -68,7 +68,7 @@ bool next_frame_ = true;
 bool next_cloud_ = true;
 
 // For User Configuration
-std::string cloud_topic_, image_topic_;
+std::string cloud_topic_, image_topic_, model_file_;
 int blur_param_;
 int hsv_target_;
 int hsv_target2_;
@@ -256,15 +256,11 @@ void *start_viewer(void *threadid){
   viewer.setCameraPosition(0.0308721, 0.0322514, -1.05573, 0.0785146, -0.996516, -0.0281465);
   viewer.setPosition(49, 540);
   
-  // RECONSTRUCTION VIEWER
-  pcl::visualization::PCLVisualizer viewer2("Reconstruction Viewer");
-  viewer2.setCameraPosition(0.0308721, 0.0322514, -1.05573, 0.0785146, -0.996516, -0.0281465);
-  viewer2.setPosition(958, 52);
-  
   pcl::PointCloud<PointType>::Ptr cloud (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr highlight_cloud (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr highlight_markers_cloud_ (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr model_cloud_ (new pcl::PointCloud<PointType> ());
+  pcl::PointCloud<PointType>::Ptr marker_cloud_ (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr transformed_cloud_ (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr reconstructed_cloud_ (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr reconstructed_markers_cloud_ (new pcl::PointCloud<PointType> ());
@@ -281,8 +277,13 @@ void *start_viewer(void *threadid){
   bool retrieve_markers_highlight_ = false;
   bool retrieve_index_ = false;
   std::vector<int> scene_corrs, database_corrs;
-	generateTestModelCloud(model_cloud_);
-  dm.loadDatabaseDescriptors(model_cloud_);
+  
+  // LOAD MODEL CLOUD AND MARKER CLOUD
+	//generateTestModelCloud(marker_cloud_);
+	pcl::PCDReader reader;
+	reader.read (package_path_ + model_file_ + "/model.pcd", *model_cloud_);		
+	reader.read (package_path_ + model_file_ + "/marker.pcd", *marker_cloud_);		
+  dm.loadDatabaseDescriptors(marker_cloud_);
   
   // VIEWER LOOP
   while (!stop_all_){
@@ -304,7 +305,6 @@ void *start_viewer(void *threadid){
 			// DETECT POSE ESTIMATION MARKERS
 			ROS_DEBUG("Detecting Markers");
 			dm.detectMarkers(blur_param_, hsv_target_, hsv_threshold_ , contour_area_min_, contour_area_max_, contour_ratio_min_, contour_ratio_max_, aruco_detection_);
-			
 			ROS_DEBUG("Computing Descriptors");
 			dm.computeDescriptors();
 			ROS_DEBUG("Finding Matching Descriptors");
@@ -322,16 +322,6 @@ void *start_viewer(void *threadid){
 				dm.getCorrespondence(scene_corrs, database_corrs);
 				pcl::transformPointCloud (*model_cloud_, *transformed_cloud_, estimated_pose_);
 			}
-			
-			dm.clearPixelPoints();
-			dm.clearDescriptors();
-			
-			// DETECT RECONSTRUCTED MARKERS
-			ROS_DEBUG("Detecting Reconstructed Markers");
-			dm.detectMarkers(blur_param_, hsv_target2_, hsv_threshold_ , contour_area_min_, contour_area_max_, contour_ratio_min_, contour_ratio_max_, aruco_detection_);
-			ROS_DEBUG("Retrieving Marker Highlights");
-			retrieve_markers_highlight_ = dm.getHighlightCloud(highlight_markers_cloud_);
-			ROS_DEBUG("Clearing Variables");
 			dm.clearPixelPoints();
 			dm.clearDescriptors();
 			dm.clearFrameAndCloud();
@@ -395,161 +385,7 @@ void *start_viewer(void *threadid){
 			
 			// SPIN VIEWER 1 AFTER UPDATE
 			ROS_DEBUG("Spinning Viewer 1");
-			viewer.spinOnce();
-			ROS_DEBUG("Viewer 1 Spun");
-			
-			// ADD VIEW TO RECONSTRUCTED CLOUD
-			if(pose_found_ && input_value_==1){
-				ROS_INFO("Adding view to reconstructed cloud");
-				pcl::PointCloud<PointType>::Ptr add_cloud_ (new pcl::PointCloud<PointType> ()); 	
-				pcl::PointCloud<PointType>::Ptr add_cloud_filtered_ (new pcl::PointCloud<PointType> ()); 	
-				pcl::PointCloud<PointType>::Ptr add_markers_cloud_ (new pcl::PointCloud<PointType> ()); 	
-				
-				// STEP 1: TRANSFORM THE SCENE TO THE REFERENCE DATUM
-				Eigen::Matrix4f pose_inverse_;
-				pose_inverse_ = estimated_pose_.inverse();
-				pcl::PointCloud<PointType>::Ptr datum_scene_cloud_ (new pcl::PointCloud<PointType> ()); 
-				pcl::transformPointCloud<PointType> (*cloud, *datum_scene_cloud_, pose_inverse_);
-				pcl::transformPointCloud<PointType> (*highlight_markers_cloud_, *add_markers_cloud_, pose_inverse_);
-				
-				// STEP 2: OBTAIN A REFERENCE PLANE
-				pcl::SACSegmentation<pcl::PointXYZ> seg;
-				pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients);
-				pcl::PointIndices::Ptr inliers (new pcl::PointIndices);
-				seg.setOptimizeCoefficients (true);
-				seg.setModelType (pcl::SACMODEL_PLANE);
-				seg.setMethodType (pcl::SAC_RANSAC);
-				seg.setDistanceThreshold (0.005);
-				seg.setInputCloud (model_cloud_);
-				seg.segment (*inliers, *coefficients);
-				if (inliers->indices.size () == 0)
-				{
-					ROS_ERROR ("Could not estimate a planar model for the given dataset.");
-				}
-				else{
-					// STEP 3: REMOVE THE PLANE AND ALL POINTS BELOW IT
-					float z_plane;
-					
-					for (int i=0; i<=datum_scene_cloud_->points.size(); ++i)
-					{
-						 z_plane = (-coefficients->values[3] - coefficients->values[0]*cloud->points[i].x - coefficients->values[1]*cloud->points[i].y)/ coefficients->values[2];
-						 if (datum_scene_cloud_->points[i].z < z_plane - plane_cut_)
-							add_cloud_->points.push_back (datum_scene_cloud_->points[i]);
-					}        
-				}
-				
-				// STEP 4: PERFORM STATISTICAL OUTLIER FILTER
-				pcl::StatisticalOutlierRemoval<pcl::PointXYZ> outlier_filter_;
-				outlier_filter_.setInputCloud (add_cloud_);
-				outlier_filter_.setMeanK (sor_mean_);
-				outlier_filter_.setStddevMulThresh (sor_thresh_);
-				outlier_filter_.filter (*add_cloud_filtered_);
-				
-				// STEP 5: ADD CLOUD TO RECONSTRUCTED CLOUD
-				*reconstructed_cloud_ += *add_cloud_filtered_;
-				*reconstructed_markers_cloud_ += *add_markers_cloud_;
-				
-				// STEP 6: PERFORM DOWN SAMPLING
-				pcl::VoxelGrid<PointType> sor;
-				pcl::PointCloud<PointType>::Ptr downsampled_cloud_ (new pcl::PointCloud<PointType> ()); 
-				sor.setInputCloud (reconstructed_cloud_);
-				sor.setLeafSize (downsampling_size_,downsampling_size_,downsampling_size_);
-				sor.filter (*downsampled_cloud_);
-				reconstructed_cloud_ = downsampled_cloud_;
-				
-				input_value_=0;
-				
-				if(first_stitch_){
-					viewer2.addPointCloud(reconstructed_cloud_, "reconstruction");
-					first_stitch_=false;
-				}else{
-					viewer2.updatePointCloud(reconstructed_cloud_, "reconstruction");
-				}
-				
-				if(first_marker_stitch_){
-					viewer2.addPointCloud(reconstructed_markers_cloud_, marker_color_handler_, "marker reconstruction");
-					viewer2.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "marker reconstruction");
-					first_marker_stitch_=false;
-				}else{
-					viewer2.updatePointCloud(reconstructed_markers_cloud_, marker_color_handler_, "marker reconstruction");
-				}
-				
-				viewer2.spinOnce();
-			}
-			
-			// SAVE RECONSTRUCTED CLOUD			
-			if(input_value_==2){
-				// CLUSTER FILTERING ON MARKER HIGHLIGHT CLOUD
-				pcl::search::KdTree<PointType>::Ptr tree (new pcl::search::KdTree<PointType>);
-				tree->setInputCloud (reconstructed_markers_cloud_);
-				std::vector<pcl::PointIndices> cluster_indices;
-				pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
-				ec.setClusterTolerance (clus_tolerance_); 
-				ec.setMinClusterSize (clus_size_min_);
-				ec.setMaxClusterSize (clus_size_max_);
-				ec.setSearchMethod (tree);
-				ec.setInputCloud (reconstructed_markers_cloud_);
-				ec.extract (cluster_indices);
-				
-				pcl::PointCloud<PointType>::Ptr cloud_cluster (new pcl::PointCloud<PointType>);
-				std::vector< std::vector<float > > center_coordinates_;
-				int centroid_number_=0;
-				for (int i = 0; i < cluster_indices.size() ; i++){
-					ROS_DEBUG_STREAM("Cluster " << i << " size: " << cluster_indices[i].indices.size());
-					//Filtering Criteria
-					if (cluster_indices[i].indices.size() > clus_size_min_ && cluster_indices[i].indices.size() < clus_size_max_){
-						// FIND CENTER OF EACH CLUSTER AND ADD CLUSTER TO POINT CLOUD
-						int n = cluster_indices[i].indices.size();
-						ROS_DEBUG_STREAM("Number of points: " << n);
-						float sum_x_=0;
-						float sum_y_=0;
-						float sum_z_=0;
-						for (int j = 0 ; j < cluster_indices[i].indices.size() ; j++) {
-							ROS_DEBUG_STREAM("Summing individual point moments, x: " << reconstructed_markers_cloud_->points[cluster_indices[i].indices[j]].x);
-							sum_x_ = sum_x_ + reconstructed_markers_cloud_->points[cluster_indices[i].indices[j]].x;
-							sum_y_ = sum_y_ + reconstructed_markers_cloud_->points[cluster_indices[i].indices[j]].y;
-							sum_z_ = sum_z_ + reconstructed_markers_cloud_->points[cluster_indices[i].indices[j]].z;
-							ROS_DEBUG("Pushing point into cluster cloud");
-							cloud_cluster->points.push_back (reconstructed_markers_cloud_->points[cluster_indices[i].indices[j]]); 
-						}
-						ROS_DEBUG("Center coordinate vector pushback");
-						center_coordinates_.push_back(std::vector<float>());
-						ROS_DEBUG_STREAM("Storing values into center coordinate vector, x: " << sum_x_/n);
-						center_coordinates_[centroid_number_].push_back(sum_x_/n);
-						center_coordinates_[centroid_number_].push_back(sum_y_/n);
-						center_coordinates_[centroid_number_].push_back(sum_z_/n);
-						centroid_number_++;
-					}
-				}
-				
-				ROS_DEBUG_STREAM("Creating Point Cloud with centroid values, size: " << center_coordinates_.size());
-				pcl::PointCloud<PointType>::Ptr cloud_cluster_center_ (new pcl::PointCloud<PointType>);
-				cloud_cluster_center_->width = center_coordinates_.size();
-				cloud_cluster_center_->height = 1;
-				cloud_cluster_center_->is_dense = false;
-				cloud_cluster_center_->points.resize(cloud_cluster_center_->width * cloud_cluster_center_->height);
-				ROS_DEBUG("Updating Point Cloud with centroid values");
-				for(int i=0; i<centroid_number_; i++){
-					cloud_cluster_center_->points[i].x = center_coordinates_[i][0];
-					cloud_cluster_center_->points[i].y = center_coordinates_[i][1];
-					cloud_cluster_center_->points[i].z = center_coordinates_[i][2];
-				}
-				
-				ROS_DEBUG_STREAM("PointCloud representing the Cluster: " << cloud_cluster->points.size () << " data points.");
-				cloud_cluster->width = cloud_cluster->points.size ();
-				cloud_cluster->height = 1;
-				cloud_cluster->is_dense = true;
-				reconstructed_markers_cloud_ = cloud_cluster;
-				
-				// STEP 2: WRITE CLOUD TO FILE
-				ROS_INFO("Saving reconstructed cloud");
-				pcl::PCDWriter writer;
-				writer.write<PointType> (package_path_ + "/reconstruced.pcd", *reconstructed_cloud_, false);
-				writer.write<PointType> (package_path_ + "/markers.pcd", *reconstructed_markers_cloud_, false);
-				input_value_=0;
-				stop_all_=true;
-			}
-			
+			viewer.spinOnce();			
 		}
 
 		retrieve_cloud_ = false;
@@ -593,6 +429,7 @@ int main (int argc, char** argv){
  	nh_private_.getParam("clus_tolerance_", clus_tolerance_);
 	nh_private_.getParam("clus_size_min_", clus_size_min_);
 	nh_private_.getParam("clus_size_max_", clus_size_max_);
+	nh_private_.getParam("model_file_", model_file_);
   nh_private_.getParam("debug_", debug_);
   
   if (debug_)

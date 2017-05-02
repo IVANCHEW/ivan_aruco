@@ -24,8 +24,9 @@
 	<arg name="clus_tolerance_" 		default="0.05"/>
   <arg name="clus_size_min_"			default="3"/>
   <arg name="clus_size_max_"			default="100"/>
+  <arg name="model_file_"					default="/box1"/>
 	
-  <node name="kinect_model_reconstruction" pkg="ivan_aruco" type="kinect_model_reconstruction" output="screen"> 
+  <node name="kinect_projection" pkg="ivan_aruco" type="kinect_projection" output="screen"> 
 		<param name="blur_param_"          	type="int"   	value="$(arg blur_param_)"/> 
 		<param name="hsv_target_"          	type="int"   	value="$(arg hsv_target_)"/> 
 		<param name="hsv_target2_"					type="int"		value="$(arg hsv_target2_)"/>
@@ -50,6 +51,7 @@
 		<param name="clus_tolerance_"		type="double"			value="$(arg clus_tolerance_)"/>
 		<param name="clus_size_min_"     type="int"   			value="$(arg clus_size_min_)"/> 
 		<param name="clus_size_max_"     type="int"   			value="$(arg clus_size_max_)"/> 
+		<param name="model_file_"				type="string"				value="$(arg model_file_)"/>
 	</node>
 	
 </launch>
