@@ -51,6 +51,8 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/aruco.hpp>
 
+#define PI 3.14159265
+
 // For ROS .yaml calibration
 std::string yaml_path_;
 std::string package_path_;
@@ -163,6 +165,89 @@ void loadCalibrationMatrix(std::string camera_name_){
   
 }
 
+void getCoordinateTransform(pcl::PointCloud<PointType>::Ptr &c, Eigen::Affine3f &t, Eigen::Vector3f &normal_point_){
+	if (c->points.size()>=3){
+		ROS_DEBUG_STREAM("Get Coordinate Transform, point cloud size: " << c->points.size());
+		Eigen::Affine3f transform_1 = Eigen::Affine3f::Identity();
+		Eigen::Affine3f transform_2 = Eigen::Affine3f::Identity();
+		transform_1.translation() << c->points[0].x, c->points[0].y, c->points[0].z;
+		
+		//Get Normal Vector
+		std::vector<float> line1, line2;
+		Eigen::Vector3f line3;
+		int i=1;
+		line1.push_back(c->points[i].x-c->points[0].x);
+		line1.push_back(c->points[i].y-c->points[0].y);
+		line1.push_back(c->points[i].z-c->points[0].z);
+		i=2;
+		line2.push_back(c->points[i].x-c->points[0].x);
+		line2.push_back(c->points[i].y-c->points[0].y);
+		line2.push_back(c->points[i].z-c->points[0].z);
+		
+		//Line 1 cross Line 2
+		//~ line3(0) = (line1[1]*line2[2] - line1[2]*line2[1]);
+		//~ line3(1) = (line1[2]*line2[0] - line1[0]*line2[2]);
+		//~ line3(2) = (line1[0]*line2[1] - line1[1]*line2[0]);
+		
+		//Compute and Normalise Normal Vector
+		line3(0) = (line2[1]*line1[2] - line2[2]*line1[1]);
+		line3(1) = (line2[2]*line1[0] - line2[0]*line1[2]);
+		line3(2) = (line2[0]*line1[1] - line2[1]*line1[0]);
+		float magnitude_ = sqrt(pow(line3(0),2) + pow(line3(1),2) + pow(line3(2),2));
+		for(int j=0; j<3; j++){
+			line3(j) = line3(j) / magnitude_;
+		}
+		normal_point_ = line3;
+		ROS_DEBUG_STREAM("Normal Vector: " << line3(0) << ", " << line3(1) << ", " << line3(2));
+		
+		float z_rotation_, x_rotation_;
+		
+		//Get Z-axis rotation - Rotate towards the X-axis
+		float magnitude_xy_ = sqrt(pow(line3(0),2) + pow(line3(1),2));
+		z_rotation_ = acos(line3(1)/magnitude_xy_);
+		if(line3(0)>=0){
+			transform_1.rotate (Eigen::AngleAxisf (z_rotation_, Eigen::Vector3f::UnitZ()));
+		}else{
+			transform_1.rotate (Eigen::AngleAxisf (-z_rotation_, Eigen::Vector3f::UnitZ()));
+		}
+		ROS_DEBUG_STREAM("Z-axis rotation: " << z_rotation_);
+		
+		//~ line3 = transform_1*line3;
+		
+		//Get Y-axis rotation - Rotate into the Z-axis
+		float magnitude_xz_ = sqrt(pow(line3(1),2) + pow(line3(2),2));
+		x_rotation_ = acos(line3(2)/magnitude_xz_);
+		if(line3(1)>=0){
+			transform_1.rotate (Eigen::AngleAxisf (-x_rotation_, Eigen::Vector3f::UnitX()));
+		}else{
+			transform_1.rotate (Eigen::AngleAxisf (x_rotation_, Eigen::Vector3f::UnitX()));
+		}
+		ROS_DEBUG_STREAM("Y-axis rotation: " << x_rotation_);
+		
+		
+		//~ //Get Z-axis rotation
+		//~ Eigen::Vector3f point1, point1_transformed_;
+		//~ point1(0) = line1[0];
+		//~ point1(1) = line1[1];
+		//~ point1(2) = line1[2];
+		//~ point1_transformed_ = transform_1*point1;
+		//~ float magnitude_yz_ = sqrt(pow(point1_transformed_(0),2) + pow(point1_transformed_(1),2));
+		//~ float z_rotation2_ = acos(point1_transformed_(0)/magnitude_yz_);
+		//~ ROS_DEBUG_STREAM("Z-axis rotation 2: " << z_rotation2_);
+		
+
+		//~ //Translate to point index 0
+		//~ transform_2.rotate (Eigen::AngleAxisf (-z_rotation2_, Eigen::Vector3f::UnitZ()));
+		//~ transform_2.rotate (Eigen::AngleAxisf (-y_rotation_, Eigen::Vector3f::UnitY()));
+		//~ transform_2.rotate (Eigen::AngleAxisf (-z_rotation_, Eigen::Vector3f::UnitZ()));
+		//~ transform_2.translation() << c->points[0].x, c->points[0].y, c->points[0].z;
+		
+		t = transform_1;
+	}else{
+		ROS_DEBUG("Point cloud too small, cannot get transform");
+	}
+}
+
 void cloud_callback(const sensor_msgs::PointCloud2& cloud_msg){
   // Convert from msg to pcl 
   if (next_frame_){
@@ -255,6 +340,7 @@ void *start_viewer(void *threadid){
   viewer.registerKeyboardCallback (keyboardEventOccurred, (void*)&viewer);
   viewer.setCameraPosition(0.0308721, 0.0322514, -1.05573, 0.0785146, -0.996516, -0.0281465);
   viewer.setPosition(49, 540);
+  viewer.addCoordinateSystem(0.2, "origin");
   
   // RECONSTRUCTION VIEWER
   pcl::visualization::PCLVisualizer viewer2("Reconstruction Viewer");
@@ -262,13 +348,16 @@ void *start_viewer(void *threadid){
   viewer2.setPosition(958, 52);
   
   pcl::PointCloud<PointType>::Ptr cloud (new pcl::PointCloud<PointType> ());
-  pcl::PointCloud<PointType>::Ptr highlight_cloud (new pcl::PointCloud<PointType> ());
+  pcl::PointCloud<PointType>::Ptr highlight_cloud;
+  pcl::PointCloud<PointType>::Ptr highlight_cloud_visualise (new pcl::PointCloud<PointType> ());
+  pcl::PointCloud<PointType>::Ptr highlight_cloud_visualise2 (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr highlight_markers_cloud_ (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr model_cloud_ (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr transformed_cloud_ (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr reconstructed_cloud_ (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr reconstructed_markers_cloud_ (new pcl::PointCloud<PointType> ());
-  pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler (highlight_cloud, 255, 0, 0);
+  pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler (highlight_cloud_visualise, 255, 0, 0);
+  pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler2 (highlight_cloud_visualise2, 255, 255, 0);
   pcl::visualization::PointCloudColorHandlerCustom<PointType> transformed_color_handler_ (transformed_cloud_, 0, 0, 255);
   pcl::visualization::PointCloudColorHandlerCustom<PointType> model_color_handler_ (model_cloud_, 255, 0, 0);
   pcl::visualization::PointCloudColorHandlerCustom<PointType> marker_color_handler_ (reconstructed_markers_cloud_, 255, 0, 0);
@@ -316,8 +405,22 @@ void *start_viewer(void *threadid){
 			retrieve_image_ = dm.getFrame(image_display_);
 			retrieve_cloud_ = dm.getCloud(cloud);
 			retrieve_highlight_ = dm.getHighlightCloud(highlight_cloud);
+			
+			// Coordinate Transform
+			//~ Eigen::Affine3f coordinate_transform_;
+			//~ Eigen::Vector3f  normal_point_;
+			//~ if(retrieve_highlight_){
+				//~ viewer.removeCoordinateSystem("reference");
+				//~ getCoordinateTransform(highlight_cloud, coordinate_transform_, normal_point_);
+				//~ viewer.addCoordinateSystem(0.2, coordinate_transform_, "reference");
+				
+				//~ ROS_DEBUG_STREAM("Index Zero point, x: " << highlight_cloud->points[0].x << " y: " << highlight_cloud->points[0].y << " z: " << highlight_cloud->points[0].z);
+			//~ }
+			
 			// OBTAIN CORRESPONDENCE
 			if(pose_found_){
+				ROS_DEBUG("Call to write descriptor");
+				dm.writeDescriptorToFile();
 				ROS_DEBUG("Pose Found, Retrieving Correspondence");
 				dm.getCorrespondence(scene_corrs, database_corrs);
 				pcl::transformPointCloud (*model_cloud_, *transformed_cloud_, estimated_pose_);
@@ -354,12 +457,6 @@ void *start_viewer(void *threadid){
 		if (retrieve_cloud_){
 			
 			if (first_cloud_){
-				ROS_INFO("Initialising New Clouds");
-				
-				// ADD SCENE CLOUD FORM KINECT
-				ROS_DEBUG_STREAM("Adding First Scene, Cloud size: " << cloud->points.size());
-				viewer.addPointCloud(cloud, "cloud");
-
 				// ADD MODEL CLOUD
 				ROS_DEBUG_STREAM("Adding First Model Cloud, Cloud size: " << model_cloud_->points.size());
 				viewer.addPointCloud(model_cloud_, model_color_handler_, "model");
@@ -367,29 +464,50 @@ void *start_viewer(void *threadid){
 
 				first_cloud_ = false;
 			}
-			else{
-				ROS_DEBUG("Updating Viewer 1 Point Clouds");
+
+			ROS_DEBUG("Updating Viewer 1 Point Clouds");
+			// UPDATING SCENE CLOUD FROM KINECT
+			ROS_DEBUG("Updating Scene Cloud");
+			if(!viewer.updatePointCloud(cloud, "cloud")){
+				viewer.addPointCloud(cloud, "cloud");
+			}
+			
+			ROS_DEBUG("Updating Highlight Cloud");
+			if(retrieve_highlight_){
+				// UPDATING HIGHLIGHT CLOUD
+				*highlight_cloud_visualise = *highlight_cloud;
+				//~ ROS_DEBUG("Updating Highlight Viewer");
+				if(!viewer.updatePointCloud(highlight_cloud_visualise, highlight_color_handler, "highlight")){
+					viewer.addPointCloud (highlight_cloud_visualise, highlight_color_handler, "highlight");
+					viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "highlight");
+				}
+			}
+			
+			ROS_DEBUG("Updating Marker 2 Cloud");
+			if(retrieve_markers_highlight_){
+				*highlight_cloud_visualise2 = *highlight_markers_cloud_;
+				if(!viewer.updatePointCloud(highlight_cloud_visualise2, highlight_color_handler2, "highlight2")){
+					viewer.addPointCloud (highlight_cloud_visualise2, highlight_color_handler2, "highlight2");
+					viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "highlight2");
+				}
+			}
+			
+			if(pose_found_){
+				// UPDATING TRANSFORMED CLOUD
+				ROS_DEBUG("Updating Transformed Cloud");
+				if(!viewer.updatePointCloud(transformed_cloud_, transformed_color_handler_, "transformed")){
+					ROS_DEBUG("First Transform Cloud, adding...");
+					viewer.addPointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
+					viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "transformed");
+				}
 				
-				// UPDATING SCENE CLOUD FROM KINECT
-				viewer.updatePointCloud(cloud, "cloud");
-				
-				if(pose_found_){
-					// UPDATING TRANSFORMED CLOUD
-					ROS_DEBUG("Updating Transformed Cloud");
-					if(!viewer.updatePointCloud(transformed_cloud_, transformed_color_handler_, "transformed")){
-						ROS_DEBUG("First Transform Cloud, adding...");
-						viewer.addPointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
-						viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "transformed");
-					}
-					
-					// UPDATING CORRESPONDENCE LINE
-					ROS_DEBUG("Updating Correspondence Lines");
-					viewer.removeAllShapes();
-					for(int i=0; i<scene_corrs.size(); i++){
-						std::stringstream ss;
-						ss << i;
-						viewer.addLine<PointType, PointType> (model_cloud_->points[database_corrs[i]], highlight_cloud->points[scene_corrs[i]], 0, 255, 0, ss.str());
-					}
+				// UPDATING CORRESPONDENCE LINE
+				ROS_DEBUG("Updating Correspondence Lines");
+				viewer.removeAllShapes();
+				for(int i=0; i<scene_corrs.size(); i++){
+					std::stringstream ss;
+					ss << i;
+					viewer.addLine<PointType, PointType> (model_cloud_->points[database_corrs[i]], highlight_cloud->points[scene_corrs[i]], 0, 255, 0, ss.str());
 				}
 			}
 			
@@ -409,7 +527,9 @@ void *start_viewer(void *threadid){
 				Eigen::Matrix4f pose_inverse_;
 				pose_inverse_ = estimated_pose_.inverse();
 				pcl::PointCloud<PointType>::Ptr datum_scene_cloud_ (new pcl::PointCloud<PointType> ()); 
+				pcl::PointCloud<PointType>::Ptr datum_marker_cloud_ (new pcl::PointCloud<PointType> ()); 
 				pcl::transformPointCloud<PointType> (*cloud, *datum_scene_cloud_, pose_inverse_);
+				pcl::transformPointCloud<PointType> (*highlight_cloud, *datum_marker_cloud_, pose_inverse_);
 				pcl::transformPointCloud<PointType> (*highlight_markers_cloud_, *add_markers_cloud_, pose_inverse_);
 				
 				// STEP 2: OBTAIN A REFERENCE PLANE
@@ -420,7 +540,7 @@ void *start_viewer(void *threadid){
 				seg.setModelType (pcl::SACMODEL_PLANE);
 				seg.setMethodType (pcl::SAC_RANSAC);
 				seg.setDistanceThreshold (0.005);
-				seg.setInputCloud (model_cloud_);
+				seg.setInputCloud (datum_marker_cloud_);
 				seg.segment (*inliers, *coefficients);
 				if (inliers->indices.size () == 0)
 				{
@@ -534,12 +654,7 @@ void *start_viewer(void *threadid){
 					cloud_cluster_center_->points[i].y = center_coordinates_[i][1];
 					cloud_cluster_center_->points[i].z = center_coordinates_[i][2];
 				}
-				
-				ROS_DEBUG_STREAM("PointCloud representing the Cluster: " << cloud_cluster->points.size () << " data points.");
-				cloud_cluster->width = cloud_cluster->points.size ();
-				cloud_cluster->height = 1;
-				cloud_cluster->is_dense = true;
-				reconstructed_markers_cloud_ = cloud_cluster;
+				reconstructed_markers_cloud_ = cloud_cluster_center_;
 				
 				// STEP 2: WRITE CLOUD TO FILE
 				ROS_INFO("Saving reconstructed cloud");
@@ -551,12 +666,13 @@ void *start_viewer(void *threadid){
 			}
 			
 		}
-
+		pose_found_ = false;
 		retrieve_cloud_ = false;
 		retrieve_image_ = false;
 		retrieve_index_ = false;
-		ROS_DEBUG("End of Viewer Loop");
+		//~ ROS_DEBUG("End of Viewer Loop");
 	}
+	dm.closeTextFile();
 	std::cout << "Exiting Image Viewer Thread" << std::endl;
 	pthread_exit(NULL);
 }
@@ -607,16 +723,20 @@ int main (int argc, char** argv){
 		pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
 		ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Info);
 	}
-	dm.setDescMatchThreshold(desc_match_thresh_);
 	
   // CAMERA CALIBRATION
 	camera_matrix = cv::Mat::eye(3, 3, CV_64F);
 	dist_coeffs = cv::Mat::zeros(8, 1, CV_64F);
   loadCalibrationMatrix("kinect_sd");
 	focal_length = camera_matrix.at<double>(0,0);
+	
+	// DATA MANAGER CONFIGURATION
 	dm.setParameters(2*camera_matrix.at<double>(1,2), 2*camera_matrix.at<double>(0,2), package_path_);
 	dm.setCameraParameters(camera_matrix, dist_coeffs);
 	dm.setIcpParameters(icp_max_iter_, icp_corr_distance_);
+	dm.setDescMatchThreshold(desc_match_thresh_);
+	dm.setMinMarkers(3);
+	dm.openTextFile();
 	
   // DEBUGGING
   ROS_DEBUG_STREAM("Package Path: " << package_path_);

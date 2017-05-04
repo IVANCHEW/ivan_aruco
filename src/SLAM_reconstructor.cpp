@@ -92,6 +92,7 @@ pcl::PointCloud<PointType>::Ptr reconstructed_cloud_ (new pcl::PointCloud<PointT
 pcl::PointCloud<PointType>::Ptr reconstructed_markers_cloud_ (new pcl::PointCloud<PointType> ());
 float clus_tolerance_;
 int clus_size_min_, clus_size_max_;
+bool view_image_;
 
 #include "data_manager.cpp"
 DataManagement dm;
@@ -158,6 +159,8 @@ int main (int argc, char** argv){
 	nh_private_.getParam("clus_tolerance_", clus_tolerance_);
 	nh_private_.getParam("clus_size_min_", clus_size_min_);
 	nh_private_.getParam("clus_size_max_", clus_size_max_);
+	nh_private_.getParam("view_image_", view_image_);
+	
   // CAMERA CALIBRATION
 	dm.setParameters(540, 960,package_path_);
 	dm.setReducedResolution(4);
@@ -242,6 +245,14 @@ int main (int argc, char** argv){
 		retrieve_cloud_ = dm.getCloud(cloud_a);
 		retrieve_highlight_ = dm.getHighlightCloud(highlight_cloud);
 		retrieve_image_ = dm.getFrame(image_display_);
+		
+		//VIEW IMAGE
+		if (dm.getFrame(image_display_) && view_image_){
+			cv::imshow("Image Viewer", image_display_);
+			if(cv::waitKey(0) >= 0) {
+				ROS_DEBUG("Image View Keyout");
+			}
+		}
 		
 		//COMPILING CLOUDS
 		ROS_DEBUG("Compiling Clouds");

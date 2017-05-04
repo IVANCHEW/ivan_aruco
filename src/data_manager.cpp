@@ -20,6 +20,7 @@
 
 // UTILITIES
 #include <iostream>
+#include <fstream>
 
 typedef pcl::PointXYZ PointType;
 typedef pcl::PointXYZI IntensityType;
@@ -68,6 +69,9 @@ class DataManagement
 		bool highlight_cloud_ready_ = false;
 		bool reduced_resolution_ = false;
 		pcl::PointCloud<PointType>::Ptr cloud, highlight_cloud_, model_cloud_;
+		
+		std::ofstream text_file_;
+		bool text_file_opened_ = false;
 		
 	public:
 	
@@ -139,6 +143,10 @@ class DataManagement
 		void printDescriptors(std::vector < std::vector < int > >, std::vector < std::vector < float > > desc);
 		
 		bool detectMarkers(int blur_param_, int hsv_target_, int hsv_threshold_ , int contour_area_min_, int contour_area_max, double contour_ratio_min_, double contour_ratio_max_, bool aruco_detection_);
+		
+		void openTextFile();
+		void closeTextFile();
+		void writeDescriptorToFile();
 		
 		/* Documenation: Circular Marker Detection
 		 * This function receives an image and processes it to determine if circular markers are located within the scene.
@@ -214,7 +222,7 @@ class DataManagement
 			//~ cv::imwrite(package_path_ + "/pose_estimation_frames/contour_marked_image.png", input_image);
 			
 			//#8 Return True if sufficient markers are present to make pose estimate
-			if (marker_count_ >= min_marker_){
+			if (point_id.size() >= min_marker_){
 				setPixelPointReady();
 				return true;
 			}else{
@@ -269,7 +277,7 @@ class DataManagement
 			pcl::PointCloud<PointType>::Ptr c (new pcl::PointCloud<PointType> ());
 			ROS_DEBUG_STREAM("DM: Cloud index size: " << cloud_index.size());
 			for(int i=0; i<cloud_index.size(); i++){
-				if(cloud->points[cloud_index[i]].x>0){
+				if(cloud->points[cloud_index[i]].x>0 || cloud->points[cloud_index[i]].x<=0){
 					c->points.push_back(cloud->points[cloud_index[i]]);
 				}else{
 					ROS_DEBUG("DM: NAN point, not added to highlight cloud");
@@ -286,7 +294,7 @@ void DataManagement::setParameters(double h, double w, std::string p){
 	frame_height = (int) h;
 	frame_width = (int) w;
 	
-	std::cout << std::endl << "Parameters set. W = " << frame_width << " H = " << frame_height << std::endl;
+	ROS_INFO_STREAM("DM: Parameters set. W = " << frame_width << " H = " << frame_height);
 	
 	parameters_ready = true;
 }
@@ -303,16 +311,18 @@ void DataManagement::setPixelPointReady(){
 
 void DataManagement::setDescMatchThreshold(float thresh){
 	desc_match_thresh_ = thresh;
+	ROS_INFO_STREAM("DM: Descriptor Match Threshold set, threshold: " << thresh);
 }
 
 void DataManagement::setIcpParameters(int iterations_, float threshold_){
 	icp_max_iter_=iterations_;
 	icp_corr_distance_=threshold_;
-	ROS_DEBUG("Data Manager: ICP Parameters Set");
+	ROS_INFO_STREAM("DM: ICP Parameters Set, iterations: " << iterations_ << " threshold: " << threshold_);
 }
 
 void DataManagement::setMinMarkers(int i){
 	min_marker_ = i;
+	ROS_INFO_STREAM("DM: Minimum markers set, min: " << i);
 }
 
 void DataManagement::setReducedResolution(int i){
@@ -326,6 +336,7 @@ void DataManagement::setReducedResolution(int i){
 	reduced_resolution_y_range_.push_back(-1);
 	reduced_resolution_y_range_.push_back(0);
 	reduced_resolution_y_range_.push_back(1);
+	ROS_INFO_STREAM("DM: Reduced Resolution Set, factor: " << i );
 }
 
 void DataManagement::loadTransform(cv::Mat t, cv::Mat r){
@@ -350,32 +361,30 @@ void DataManagement::loadCloud(pcl::PointCloud<PointType>::Ptr &c){
 
 // Also computes corresponding cloud index with the given pixel position
 void DataManagement::loadPixelPoint(cv::Point2f p, int id){
-	//~ std::cout << "Loading pixel point " << index_count << " . x: " << p.x << ", y: " << p.y << std::endl;
 	int index_temp;
-	
+
 	if (!reduced_resolution_){
+		//~ ROS_DEBUG("DM: Loading Pixel Point, no reduced resolution");
 		index_temp = (p.y) * frame_width + p.x;
-		cloud_index.push_back(index_temp);
-		point_id.push_back(id);
-		pixel_position_.push_back(p);
-		index_count++;
+		//~ ROS_DEBUG_STREAM("DM: Index computed: " << index_temp);
+		if (cloud->points[index_temp].x>0 || cloud->points[index_temp].x<=0 ){
+			cloud_index.push_back(index_temp);
+			point_id.push_back(id);
+			pixel_position_.push_back(p);
+			index_count++;
+		}else{
+			//~ ROS_DEBUG_STREAM("DM: Pixel point not added, probable NAN point, x: " << cloud->points[index_temp].x);
+		}
 	}
 	else{
 		int temp_width_ = p.x/reduced_resolution_factor_;
 		int temp_height_ = p.y/reduced_resolution_factor_;
 		index_temp = temp_height_ * frame_width / reduced_resolution_factor_ + temp_width_;
-		ROS_DEBUG_STREAM("Original point: " << p.x << " x " << p.y << " Converted: " << temp_width_ << " x " << temp_height_ << " Index: " << index_temp);
+		//~ ROS_DEBUG_STREAM("DM: Original point: " << p.x << " x " << p.y << " Converted: " << temp_width_ << " x " << temp_height_ << " Index: " << index_temp);
 		cloud_index.push_back(index_temp);
 		point_id.push_back(id);
 		pixel_position_.push_back(p);
 		index_count++;
-		//~ for (int i=0; i<reduced_resolution_y_range_.size(); i++){
-			//~ index_temp = (temp_height_ + reduced_resolution_y_range_[i])* frame_width / reduced_resolution_factor_ + (temp_width_ + reduced_resolution_x_range_[i]);
-			//~ cloud_index.push_back(index_temp);
-			//~ point_id.push_back(id);
-			//~ pixel_position_.push_back(p);
-			//~ index_count++;
-		//~ }
 	}
 
 }
@@ -551,13 +560,14 @@ bool DataManagement::getCorrespondence(std::vector<int> &scene_corrs, std::vecto
 
 bool DataManagement::getMatchingDescriptor(){
 	if (pixel_point_ready && database_desc_ready_){
+		ROS_DEBUG("DM: Get Matching Descriptors...");
 		std::vector < int > match_point_;
 		std::vector < int > match_database_;
 		bool match_found_ = false;
 		for (int n=0; n<feature_desc_index.size(); n++){
 			int match_count_ = 0;
 			for (int m=0; m<database_desc_index_.size(); m++){
-				//~ std::cout << "Checking feature: " << n << " with Database: " << m << std::endl;
+				ROS_DEBUG_STREAM("DM: Checking feature: " << n << " with Database: " << m);
 				std::vector < int > ().swap(match_point_);
 				std::vector < int > ().swap(match_database_);
 				match_point_.push_back(n);
@@ -566,23 +576,23 @@ bool DataManagement::getMatchingDescriptor(){
 				int count = 0;
 				for (int i=0; i< feature_desc_index[n].size() ; i++){
 					if ((feature_desc[n][i]>=database_desc_[m][j] - desc_match_thresh_) && (feature_desc[n][i]<=database_desc_[m][j] + desc_match_thresh_)){
-						//~ std::cout << "Element Matched" << std::endl;
+						ROS_DEBUG("DM: Element Matched");
 						match_point_.push_back(feature_desc_index[n][i]);
 						match_database_.push_back(database_desc_index_[m][j]);
 						j++;
 						count++;
 					}
 					else if (feature_desc[n][i] >= database_desc_[m][j] + desc_match_thresh_){
-						//~ std::cout << "Next database element" << std::endl;
+						ROS_DEBUG("DM: Next database element");
 						j++;
 					}
 					else{
-						//~ std::cout << "Not a match" << std::endl;
+						ROS_DEBUG("DM: Not a match");
 						break;
 					}
 				}
 				if (count == 3){
-					//~ std::cout << "Match Found" << std::endl;
+					ROS_DEBUG("DM: Match Found");
 					match_found_ = true;
 					break;
 				}
@@ -591,25 +601,25 @@ bool DataManagement::getMatchingDescriptor(){
 				break;
 		}
 		if (match_found_){
-			//~ std::cout << "Descriptor Match Found" << std::endl;
+			ROS_DEBUG("DM: Descriptor Match Found");
 			correspondence_point_.swap(match_point_);
 			correspondence_database_.swap(match_database_);
 			labelMarkers();
 		}else{
-			//~ std::cout << "No Match Found" << std::endl;
+			ROS_DEBUG("No Match Found");
 		}
 	}else if(!pixel_point_ready){
-		//~ std::cout << "Pixel points not ready, cannot determine match" << std::endl;
+		ROS_DEBUG("Pixel points not ready, cannot determine match");
 	}
 	else if(!database_desc_ready_){
-		//~ std::cout << "Database Descriptors not loaded, cannot determine match" << std::endl;
+		ROS_DEBUG("Database Descriptors not loaded, cannot determine match");
 	}
 }
 
 void DataManagement::computeDescriptors(){
 	if(pixel_point_ready && cloud_ready){
 		int n = point_id.size();
-		ROS_DEBUG_STREAM("Number of features detected: " << n);
+		ROS_DEBUG_STREAM("DM: Number of features detected: " << n);
 		for (int i = 0 ; i < n ; i++){
 			std::vector<float> temp_desc;
 			std::vector<int> temp_index;
@@ -626,44 +636,46 @@ void DataManagement::computeDescriptors(){
 			feature_desc_index.push_back(temp_index);
 			feature_desc.push_back(temp_desc);
 		}
-		ROS_DEBUG("Finished computing descriptors... ");
+		ROS_DEBUG("DM: Finished computing descriptors... ");
 		arrangeDescriptorsElements(feature_desc_index, feature_desc);
-		//~ printDescriptors(feature_desc_index, feature_desc);
+		printDescriptors(feature_desc_index, feature_desc);
 	}
 	else if(!pixel_point_ready){
-		//~ std::cout << "Pixel points not ready, cannot compute descriptor" << std::endl;
+		ROS_DEBUG("Pixel points not ready, cannot compute descriptor");
 	}
 	else if(!cloud_ready){
-		//~ std::cout << "Point cloud not ready, cannot compute descriptor" << std::endl;
+		ROS_DEBUG("Point cloud not ready, cannot compute descriptor");
 	}
 }
 
 bool DataManagement::computePoseEstimate(Eigen::Matrix4f &estimated_pose_, float gc_size_, int gc_threshold_){
 	bool pose_found_ = false;
 	if (correspondence_point_.size()>2){
-		ROS_DEBUG("Begin Pose Estimation");
+		ROS_DEBUG("DM: Begin Pose Estimation");
 				
 		//STEP 1: SET CORRESPONDENCE
 		pcl::CorrespondencesPtr model_scene_corrs (new pcl::Correspondences ());
+		ROS_DEBUG_STREAM("DM: Number of Correspodnences: " << correspondence_point_.size());
 		for (int i=0; i<correspondence_point_.size(); i++){
 			pcl::Correspondence corr (correspondence_database_[i], correspondence_point_[i], 0);
-			ROS_DEBUG_STREAM("Scene: " << correspondence_point_[i] << " Model: " << correspondence_database_[i]);
+			ROS_DEBUG_STREAM("DM: Scene: " << correspondence_point_[i] << " Model: " << correspondence_database_[i]);
 			model_scene_corrs->push_back (corr);
 		}
 		
 		//STEP 2: PERFORM GEOMETRIC CONSISTENCY GROUPING
+		ROS_DEBUG("DM: Begin GCG");
 		std::vector<Eigen::Matrix4f, Eigen::aligned_allocator<Eigen::Matrix4f> > rototranslations;
 		std::vector<pcl::Correspondences> clustered_corrs;  
 		pcl::GeometricConsistencyGrouping<PointType, PointType> gc_clusterer;
-			gc_clusterer.setGCSize (gc_size_);
-			gc_clusterer.setGCThreshold (gc_threshold_);
-			gc_clusterer.setInputCloud (model_cloud_);
-			gc_clusterer.setSceneCloud (highlight_cloud_);
-			gc_clusterer.setModelSceneCorrespondences (model_scene_corrs);
-			gc_clusterer.recognize (rototranslations, clustered_corrs);
-		ROS_DEBUG_STREAM("Model instances found: " << rototranslations.size ());        
+		gc_clusterer.setGCSize (gc_size_);
+		gc_clusterer.setGCThreshold (gc_threshold_);
+		gc_clusterer.setInputCloud (model_cloud_);
+		gc_clusterer.setSceneCloud (highlight_cloud_);
+		gc_clusterer.setModelSceneCorrespondences (model_scene_corrs);
+		gc_clusterer.recognize (rototranslations, clustered_corrs);
+		ROS_DEBUG_STREAM("DM: Model instances found: " << rototranslations.size ());        
 		if (rototranslations.size ()== 0){
-			ROS_DEBUG("No instance found");
+			ROS_DEBUG("DM: No instance found");
 		}
 		else{
 			// STEP 3: ICP
@@ -679,55 +691,60 @@ bool DataManagement::computePoseEstimate(Eigen::Matrix4f &estimated_pose_, float
       Eigen::Matrix4f icp_pose_ = rototranslations[0].block<4,4>(0,0);
       if (icp.hasConverged ())
       {
-        ROS_DEBUG_STREAM("Instance Aligned");
+        ROS_DEBUG_STREAM("DM: Instance Aligned");
 				estimated_pose_ = icp.getFinalTransformation().cast<float>()*icp_pose_;
 				pose_found_ = true;
       }
       else
       {
-        ROS_DEBUG("Not Aligned!");
+        ROS_DEBUG("DM: Not Aligned!");
       }
-			ROS_DEBUG("ICP Completed");    
+			ROS_DEBUG("DM: ICP Completed");    
 		}
 		
 	}else{
-		ROS_DEBUG("Insufficient points to perform pose estimation");	
+		ROS_DEBUG("DM: Insufficient points to perform pose estimation");	
 	}
 	return pose_found_;
 }
 
 void DataManagement::arrangeDescriptorsElements(std::vector < std::vector < int > > &index, std::vector < std::vector < float > > &	desc){
 	 
-	ROS_DEBUG("Sorting descriptors according to magnitude...");
-	for (int n=0; n < desc.size() ; n++){
-		bool lowest_score = true;
-		int front_of_index;
-		std::vector <float> sorted_desc;
-		std::vector <int> sorted_index;
-		sorted_desc.push_back(desc[n][0]);
-		sorted_index.push_back(index[n][0]);
-		for (int i=1; i<desc[n].size(); i++){    
-			lowest_score = true;  
-			for (int  j=0 ; j < sorted_desc.size() ; j++){   
-				if(desc[n][i] <= sorted_desc[j]){
-					front_of_index = j;
-					lowest_score = false;
-					break;
-				}       
+	ROS_DEBUG("DM: Sorting descriptors according to magnitude...");
+	ROS_DEBUG_STREAM("DM: Number of features: " << desc.size());
+	if(desc.size()==1){
+		ROS_DEBUG("Unable to compute descriptors, only one feature");
+	}else{
+		for (int n=0; n < desc.size() ; n++){
+			bool lowest_score = true;
+			int front_of_index;
+			std::vector <float> sorted_desc;
+			std::vector <int> sorted_index;
+			sorted_desc.push_back(desc[n][0]);
+			sorted_index.push_back(index[n][0]);
+			for (int i=1; i<desc[n].size(); i++){    
+				lowest_score = true;  
+				for (int  j=0 ; j < sorted_desc.size() ; j++){   
+					if(desc[n][i] <= sorted_desc[j]){
+						front_of_index = j;
+						lowest_score = false;
+						break;
+					}       
+				}
+				if (lowest_score==false){
+					sorted_desc.insert(sorted_desc.begin() + front_of_index, desc[n][i]);     
+					sorted_index.insert(sorted_index.begin() + front_of_index, index[n][i]);           
+				}
+				else if(lowest_score==true){
+					sorted_desc.push_back(desc[n][i]);
+					sorted_index.push_back(index[n][i]);
+				}
 			}
-			if (lowest_score==false){
-				sorted_desc.insert(sorted_desc.begin() + front_of_index, desc[n][i]);     
-				sorted_index.insert(sorted_index.begin() + front_of_index, index[n][i]);           
-			}
-			else if(lowest_score==true){
-				sorted_desc.push_back(desc[n][i]);
-				sorted_index.push_back(index[n][i]);
-			}
+			index[n].swap(sorted_index);
+			desc[n].swap(sorted_desc);
 		}
-		index[n].swap(sorted_index);
-		desc[n].swap(sorted_desc);
+		ROS_DEBUG("DM: Descriptors Sorted...");
 	}
-	ROS_DEBUG("Descriptors Sorted...");
 }
 
 void DataManagement::clearPixelPoints(){
@@ -806,3 +823,44 @@ bool DataManagement::detectMarkers(int blur_param_, int hsv_target_, int hsv_thr
 		return false;
 	}
 }
+
+void DataManagement::openTextFile(){
+	ROS_INFO_STREAM("DM: Opening Text File in " << package_path_ << "/example.txt");
+	std::string text_file_path_ = package_path_ + "/example.txt";
+	text_file_.open (text_file_path_.c_str());
+	if(text_file_.is_open()){
+		ROS_INFO("DM: Text file open checked");
+		text_file_opened_=true;
+	}
+	else{
+		ROS_INFO("DM: Text file not opened");
+	}
+}
+
+void DataManagement::closeTextFile(){
+  if(text_file_opened_){
+		ROS_INFO("DM: Closing Text File");
+		text_file_.close();
+		text_file_opened_=false;
+	}else{
+		ROS_INFO("DM: Cannot close text file, not opened initially");
+	}
+}
+
+void DataManagement::writeDescriptorToFile(){
+	ROS_INFO("DM: Writing Descriptor to Text File");
+	for(int i=0; i<correspondence_point_.size(); i++){
+		if(correspondence_database_[i]==0){
+			for(int j=0; j<feature_desc[correspondence_point_[i]].size(); j++){
+				text_file_ << feature_desc[correspondence_point_[i]][j];
+				if(j==(feature_desc[correspondence_point_[i]].size()-1)){
+					text_file_ << "\n";
+				}else{
+					text_file_ << ",";
+				}
+			}
+			break;
+		}
+	}
+}
+
