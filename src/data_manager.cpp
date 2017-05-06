@@ -638,7 +638,7 @@ void DataManagement::computeDescriptors(){
 		}
 		ROS_DEBUG("DM: Finished computing descriptors... ");
 		arrangeDescriptorsElements(feature_desc_index, feature_desc);
-		printDescriptors(feature_desc_index, feature_desc);
+		//~ printDescriptors(feature_desc_index, feature_desc);
 	}
 	else if(!pixel_point_ready){
 		ROS_DEBUG("Pixel points not ready, cannot compute descriptor");

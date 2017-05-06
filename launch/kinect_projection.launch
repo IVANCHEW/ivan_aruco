@@ -24,7 +24,7 @@
 	<arg name="clus_tolerance_" 		default="0.005"/>
   <arg name="clus_size_min_"			default="3"/>
   <arg name="clus_size_max_"			default="100"/>
-  <arg name="model_file_"					default="/projection_test/box1"/>
+  <arg name="model_file_"					default="/projection_test/box2"/>
 	
   <node name="kinect_projection" pkg="ivan_aruco" type="kinect_projection" output="screen"> 
 		<param name="blur_param_"          	type="int"   	value="$(arg blur_param_)"/> 

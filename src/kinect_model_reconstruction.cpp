@@ -80,6 +80,7 @@ int contour_area_max_;
 double contour_ratio_min_;
 double contour_ratio_max_;
 bool aruco_detection_;
+std::string desc_file_;
 
 // For Pose Estimation
 int gc_threshold_;
@@ -96,6 +97,8 @@ float downsampling_size_;
 float clus_tolerance_;
 int clus_size_min_, clus_size_max_;
 
+// For Descriptor Export
+int desc_write_count_ = 0;
 #include "data_manager.cpp"
 
 DataManagement dm;
@@ -370,7 +373,16 @@ void *start_viewer(void *threadid){
   bool retrieve_markers_highlight_ = false;
   bool retrieve_index_ = false;
   std::vector<int> scene_corrs, database_corrs;
-	generateTestModelCloud(model_cloud_);
+  
+  // GENERATE DESCRIPTORS FROM FUNCTION
+	//~ generateTestModelCloud(model_cloud_);
+	//~ pcl::PCDWriter writer;
+	//~ writer.write<PointType> (package_path_ + desc_file_, *model_cloud_, false);
+	
+	// LOAD DESCRIPTORS FROM FILE
+	pcl::PCDReader reader;
+	reader.read (package_path_ + desc_file_, *model_cloud_);	
+	
   dm.loadDatabaseDescriptors(model_cloud_);
   
   // VIEWER LOOP
@@ -419,8 +431,14 @@ void *start_viewer(void *threadid){
 			
 			// OBTAIN CORRESPONDENCE
 			if(pose_found_){
-				ROS_DEBUG("Call to write descriptor");
-				dm.writeDescriptorToFile();
+				//~ ROS_DEBUG("Call to write descriptor");
+				
+				//~ if(desc_write_count_==200){
+					//~ dm.closeTextFile();
+				//~ }else{
+					//~ dm.writeDescriptorToFile();
+					//~ desc_write_count_++;
+				//~ }
 				ROS_DEBUG("Pose Found, Retrieving Correspondence");
 				dm.getCorrespondence(scene_corrs, database_corrs);
 				pcl::transformPointCloud (*model_cloud_, *transformed_cloud_, estimated_pose_);
@@ -672,7 +690,7 @@ void *start_viewer(void *threadid){
 		retrieve_index_ = false;
 		//~ ROS_DEBUG("End of Viewer Loop");
 	}
-	dm.closeTextFile();
+	//~ dm.closeTextFile();
 	std::cout << "Exiting Image Viewer Thread" << std::endl;
 	pthread_exit(NULL);
 }
@@ -709,6 +727,7 @@ int main (int argc, char** argv){
  	nh_private_.getParam("clus_tolerance_", clus_tolerance_);
 	nh_private_.getParam("clus_size_min_", clus_size_min_);
 	nh_private_.getParam("clus_size_max_", clus_size_max_);
+	nh_private_.getParam("desc_file_", desc_file_);
   nh_private_.getParam("debug_", debug_);
   
   if (debug_)
@@ -736,7 +755,7 @@ int main (int argc, char** argv){
 	dm.setIcpParameters(icp_max_iter_, icp_corr_distance_);
 	dm.setDescMatchThreshold(desc_match_thresh_);
 	dm.setMinMarkers(3);
-	dm.openTextFile();
+	//~ dm.openTextFile();
 	
   // DEBUGGING
   ROS_DEBUG_STREAM("Package Path: " << package_path_);

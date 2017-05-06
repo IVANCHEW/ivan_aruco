@@ -24,6 +24,7 @@
 	<arg name="clus_tolerance_" 		default="0.05"/>
   <arg name="clus_size_min_"			default="3"/>
   <arg name="clus_size_max_"			default="100"/>
+  <arg name="desc_file_"					default="/descriptors/set1.pcd"/>
 	
   <node name="kinect_model_reconstruction" pkg="ivan_aruco" type="kinect_model_reconstruction" output="screen"> 
 		<param name="blur_param_"          	type="int"   	value="$(arg blur_param_)"/> 
@@ -47,9 +48,10 @@
 		<param name="plane_cut_"						type="double"			value="$(arg plane_cut_)" />	
 		<param name="sor_mean_"							type="int"				value="$(arg sor_mean_)"/>
 		<param name="sor_thresh_"						type="double"			value="$(arg sor_thresh_)"/>
-		<param name="clus_tolerance_"		type="double"			value="$(arg clus_tolerance_)"/>
-		<param name="clus_size_min_"     type="int"   			value="$(arg clus_size_min_)"/> 
-		<param name="clus_size_max_"     type="int"   			value="$(arg clus_size_max_)"/> 
+		<param name="clus_tolerance_"				type="double"			value="$(arg clus_tolerance_)"/>
+		<param name="clus_size_min_"    		type="int"   			value="$(arg clus_size_min_)"/> 
+		<param name="clus_size_max_"     		type="int"   			value="$(arg clus_size_max_)"/> 
+		<param name="desc_file_"						type="string"			value="$(arg desc_file_)"/>
 	</node>
 	
 </launch>

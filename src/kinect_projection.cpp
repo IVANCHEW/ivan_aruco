@@ -353,7 +353,7 @@ void *start_viewer(void *threadid){
 				// ADD MODEL CLOUD
 				ROS_DEBUG_STREAM("Adding First Model Cloud, Cloud size: " << model_cloud_->points.size());
 				viewer.addPointCloud(model_cloud_, model_color_handler_, "model");
-				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "model");
+				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "model");
 
 				first_cloud_ = false;
 			}
@@ -369,7 +369,7 @@ void *start_viewer(void *threadid){
 					if(!viewer.updatePointCloud(transformed_cloud_, transformed_color_handler_, "transformed")){
 						ROS_DEBUG("First Transform Cloud, adding...");
 						viewer.addPointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
-						viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "transformed");
+						viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "transformed");
 					}
 					
 					// UPDATING CORRESPONDENCE LINE
