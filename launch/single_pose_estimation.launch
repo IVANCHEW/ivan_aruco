@@ -7,7 +7,7 @@
   <arg name="blur_param_"			default="5" />
   <arg name="hsv_target_"			default="145" />
   <arg name="hsv_threshold_"	default="10" />
-  <arg name="contour_area_min_"	default="150" />
+  <arg name="contour_area_min_"	default="50" />
   <arg name="contour_area_max_"	default="1000" />
   <arg name="contour_ratio_min_"	default="6" />
   <arg name="contour_ratio_max_"	default="9" />

@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="debug"  default="False" />
+  <arg name="image_path_"  			default="/slam_data/thirdtake/rgb" />
+  <arg name="cloud_path_"  			default="/slam_data/thirdtake/cloud" />
+  
+  <arg name="blur_param_"			default="5" />
+  <arg name="hsv_target_"			default="135" />
+  <arg name="hsv_threshold_"	default="10" />
+  <arg name="contour_area_min_"	default="50" />
+  <arg name="contour_area_max_"	default="1000" />
+  <arg name="contour_ratio_min_"	default="6" />
+  <arg name="contour_ratio_max_"	default="9" />
+  <arg name="aruco_detection_" 		default="False" />
+  <arg name="downsampling_size_"	default="0.01"/>
+  <arg name="clus_tolerance_" 		default="0.05"/>
+  <arg name="clus_size_min_"			default="3"/>
+  <arg name="clus_size_max_"			default="100"/>
+  <arg name="view_image_"					default="false"/>
+  
+  <node name="SLAM_reconstructor" pkg="ivan_aruco" type="SLAM_reconstructor" output="screen"> 
+		<param name="image_path_"          	type="string"   	value="$(arg image_path_)"/> 
+		<param name="cloud_path_"          	type="string"   	value="$(arg cloud_path_)"/> 
+		<param name="blur_param_"          	type="int"   			value="$(arg blur_param_)"/> 
+		<param name="hsv_target_"          	type="int"   			value="$(arg hsv_target_)"/> 
+		<param name="hsv_threshold_"   			type="int"   			value="$(arg hsv_threshold_)"/> 
+		<param name="contour_area_min_"    	type="int"   			value="$(arg contour_area_min_)"/> 
+		<param name="contour_area_max_"     type="int"   			value="$(arg contour_area_max_)"/> 
+		<param name="contour_ratio_min_"    type="double"   			value="$(arg contour_ratio_min_)"/> 
+		<param name="contour_ratio_max_"    type="double"   			value="$(arg contour_ratio_max_)"/> 
+		<param name="aruco_detection_"    	type="bool"   				value="$(arg aruco_detection_)"/> 
+		<param name="downsampling_size_"		type="double"			value="$(arg downsampling_size_)"/>
+		<param name="clus_tolerance_"		type="double"			value="$(arg clus_tolerance_)"/>
+		<param name="clus_size_min_"     type="int"   			value="$(arg clus_size_min_)"/> 
+		<param name="clus_size_max_"     type="int"   			value="$(arg clus_size_max_)"/> 
+		<param name="view_image_"				type="bool"					value="$(arg view_image_)"/>
+	</node>
+	
+</launch>
+
+

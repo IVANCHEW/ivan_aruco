@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <launch>
-  <arg name="debug"  default="False" />
+  <arg name="debug_"  default="False" />
   <arg name="bag_name_"  			default="recorder_save.bag" />
   <arg name="folder_name_"  	default="/kinect_record_saves/" />
   <arg name="single_frame_"  	default="False" />
@@ -8,7 +8,7 @@
   <arg name="delay_time_"			default="0.02" />
   
   <node name="rosbag_replay" pkg="ivan_aruco" type="rosbag_replay" output="screen"> 
-    <param name="debug"           	type="bool"   	value="$(arg debug)"/> 
+    <param name="debug_"           	type="bool"   	value="$(arg debug)"/> 
     <param name="bag_name_"      		type="string"   value="$(arg bag_name_)"/> 
     <param name="folder_name_"     	type="string"   value="$(arg folder_name_)"/> 
     <param name="single_frame_"    	type="bool"   	value="$(arg single_frame_)"/> 

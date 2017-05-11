@@ -98,6 +98,76 @@ void generateTestModelCloud(pcl::PointCloud<PointType>::Ptr &cloud){
 	cloud->points[5].x = 0.4;
 }
 
+void getCoordinateTransform(pcl::PointCloud<PointType>::Ptr &c, Eigen::Affine3f &t){
+	if (c->points.size()>=3){
+		ROS_DEBUG("Get Coordinate Transform");
+		Eigen::Affine3f transform_1 = Eigen::Affine3f::Identity();
+		Eigen::Affine3f transform_2 = Eigen::Affine3f::Identity();
+		
+		//Get Normal Vector
+		std::vector<float> line1, line2, line3;
+		int i=1;
+		line1.push_back(c->points[i].x-c->points[0].x);
+		line1.push_back(c->points[i].y-c->points[0].y);
+		line1.push_back(c->points[i].z-c->points[0].z);
+		i=2;
+		line2.push_back(c->points[i].x-c->points[0].x);
+		line2.push_back(c->points[i].y-c->points[0].y);
+		line2.push_back(c->points[i].z-c->points[0].z);
+		
+		//Line 1 cross Line 2
+		//~ line3.push_back(line1[1]*line2[2] - line1[2]*line2[1]);
+		//~ line3.push_back(line1[2]*line2[0] - line1[0]*line2[2]);
+		//~ line3.push_back(line1[0]*line2[1] - line1[1]*line2[0]);
+		
+		//Compute and Normalise Normal Vector
+		line3.push_back(line2[1]*line1[2] - line2[2]*line1[1]);
+		line3.push_back(line2[2]*line1[0] - line2[0]*line1[2]);
+		line3.push_back(line2[0]*line1[1] - line2[1]*line1[0]);
+		float magnitude_ = sqrt(pow(line3[0],2) + pow(line3[1],2) + pow(line3[2],2));
+		for(int j=0; j<3; j++){
+			line3[j] = line3[j] / magnitude_;
+		}
+		
+		ROS_DEBUG_STREAM("Normal Vector: " << line3[0] << ", " << line3[1] << ", " << line3[2]);
+		
+		//Get Z-axis rotation - Rotate towards the X-axis
+		float magnitude_xy_ = sqrt(pow(line3[0],2) + pow(line3[1],2));
+		float z_rotation_ = acos(line3[0]/magnitude_xy_);
+		ROS_DEBUG_STREAM("Z-axis rotation: " << z_rotation_);
+		
+		//Get Y-axis rotation - Rotate into the Z-axis
+		float magnitude_xz_ = sqrt(pow(line3[0],2) + pow(line3[2],2));
+		float y_rotation_ = acos(line3[2]/magnitude_xz_);
+		ROS_DEBUG_STREAM("Y-axis rotation: " << y_rotation_);
+		
+		transform_1.rotate (Eigen::AngleAxisf (-y_rotation_, Eigen::Vector3f::UnitY()));
+		transform_1.rotate (Eigen::AngleAxisf (-z_rotation_, Eigen::Vector3f::UnitZ()));
+		transform_1.translation() << c->points[0].x, c->points[0].y, c->points[0].z;
+		
+		//Get Z-axis rotation
+		Eigen::Vector3f point1, point1_transformed_;
+		point1(0) = line1[0];
+		point1(1) = line1[1];
+		point1(2) = line1[2];
+		point1_transformed_ = transform_1*point1;
+		float magnitude_yz_ = sqrt(pow(point1_transformed_(0),2) + pow(point1_transformed_(1),2));
+		float z_rotation2_ = acos(point1_transformed_(0)/magnitude_yz_);
+		ROS_DEBUG_STREAM("Z-axis rotation 2: " << z_rotation2_);
+		
+
+		//Translate to point index 0
+		transform_2.rotate (Eigen::AngleAxisf (-z_rotation2_, Eigen::Vector3f::UnitZ()));
+		transform_2.rotate (Eigen::AngleAxisf (-y_rotation_, Eigen::Vector3f::UnitY()));
+		transform_2.rotate (Eigen::AngleAxisf (-z_rotation_, Eigen::Vector3f::UnitZ()));
+		transform_2.translation() << c->points[0].x, c->points[0].y, c->points[0].z;
+		
+		t = transform_2;
+	}else{
+		ROS_DEBUG("Point cloud too small, cannot get transform");
+	}
+}
+
 static void calcBoardCornerPositions(cv::Size boardSize, float squareSize, std::vector<cv::Point3f>& corners, std::string patternType){
     corners.clear();
 
@@ -233,15 +303,17 @@ void *start_viewer(void *threadid){
   viewer.setCameraPosition(0.0308721, 0.0322514, -1.05573, 0.0785146, -0.996516, -0.0281465);
   viewer.setPosition(49, 540);
   pcl::PointCloud<PointType>::Ptr cloud (new pcl::PointCloud<PointType> ());
-  pcl::PointCloud<PointType>::Ptr highlight_cloud (new pcl::PointCloud<PointType> ());
+  pcl::PointCloud<PointType>::Ptr highlight_cloud_visualise (new pcl::PointCloud<PointType> ());
+  pcl::PointCloud<PointType>::Ptr highlight_cloud;
   pcl::PointCloud<PointType>::Ptr model_cloud_ (new pcl::PointCloud<PointType> ());
   pcl::PointCloud<PointType>::Ptr transformed_cloud_ (new pcl::PointCloud<PointType> ());
-  pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler (highlight_cloud, 255, 0, 0);
+  pcl::visualization::PointCloudColorHandlerCustom<PointType> highlight_color_handler (highlight_cloud_visualise, 255, 0, 0);
   pcl::visualization::PointCloudColorHandlerCustom<PointType> model_color_handler_ (model_cloud_, 0, 255, 0);
   pcl::visualization::PointCloudColorHandlerCustom<PointType> transformed_color_handler_ (model_cloud_, 0, 0, 255);
   bool first_cloud_ = true;
   bool model_cloud_ready_ = false;
   bool retrieve_cloud_ = false;
+  bool retrieve_highlight_ = false;
   
   //TO BE DELETED
   generateTestModelCloud(model_cloud_);
@@ -265,7 +337,15 @@ void *start_viewer(void *threadid){
 			dm.getMatchingDescriptor();
 			retrieve_image_ = dm.getFrame(image_display_);
 			retrieve_cloud_ = dm.getCloud(cloud);
-			next_frame_ = true;
+			retrieve_highlight_ = dm.getHighlightCloud(highlight_cloud);
+		}
+		
+		// Coordinate Transform
+		Eigen::Affine3f coordinate_transform_;
+		if(retrieve_highlight_){
+			viewer.removeCoordinateSystem();
+			getCoordinateTransform(highlight_cloud, coordinate_transform_);
+			viewer.addCoordinateSystem(0.2, coordinate_transform_, "reference");
 		}
 		
 		// DISPLAY IMAGE
@@ -281,28 +361,40 @@ void *start_viewer(void *threadid){
 		// DISPLAY CLOUD
 		if (retrieve_cloud_){
 			
-			if (first_cloud_){
-				std::cout << "Added new cloud to viewer" << std::endl;
+			if (first_cloud_ && model_cloud_ready_){
+				// ADD MODEL CLOUD
+				ROS_DEBUG_STREAM("Adding First Model Cloud, Cloud size: " << model_cloud_->points.size());
+				viewer.addPointCloud(model_cloud_, model_color_handler_, "model");
+				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "model");
+				first_cloud_ = false;
+			}
+			
+			// UPDATING SCENE CLOUD FROM KINECT
+			ROS_DEBUG("Updating Scene Cloud");
+			if(!viewer.updatePointCloud(cloud, "cloud")){
 				viewer.addPointCloud(cloud, "cloud");
-				highlight_cloud->points.push_back(cloud->points[0]);
-				viewer.addPointCloud (highlight_cloud, highlight_color_handler, "Highlight Cloud");
-				viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "Highlight Cloud");
+			}
+			
+			ROS_DEBUG("Updating Highlight Cloud");
+			if(retrieve_highlight_){
+				// UPDATING HIGHLIGHT CLOUD
+				*highlight_cloud_visualise = *highlight_cloud;
+				if(!viewer.updatePointCloud(highlight_cloud_visualise, highlight_color_handler, "highlight")){
+					viewer.addPointCloud (highlight_cloud_visualise, highlight_color_handler, "highlight");
+					viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "highlight");
+				}
+			}
+			
+			//UPDATING TRANSFORMED CLOUD
+			ROS_DEBUG("Updating Transformed Cloud");
+			if (first_cloud_){
 				if(model_cloud_ready_){
-					viewer.addPointCloud(model_cloud_, model_color_handler_, "model");
-					viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "model");
 					transformed_cloud_->points.push_back(cloud->points[0]);
 					viewer.addPointCloud(transformed_cloud_, transformed_color_handler_, "transformed");
 					viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 7, "transformed");
 				}
 				first_cloud_ = false;
 			}
-			else{
-				viewer.updatePointCloud(cloud, "cloud");
-				if(dm.getHighlightCloud(highlight_cloud)){
-					viewer.updatePointCloud(highlight_cloud, highlight_color_handler, "Highlight Cloud");
-				}
-			}
-			
 			Eigen::Matrix4f estimated_pose_;
 			if(dm.computePoseEstimate(estimated_pose_, gc_size_, gc_threshold_)){
 				pcl::transformPointCloud (*model_cloud_, *transformed_cloud_, estimated_pose_);
@@ -312,9 +404,12 @@ void *start_viewer(void *threadid){
 			viewer.spinOnce();
 			dm.clearPixelPoints();
 			dm.clearDescriptors();
+			dm.clearFrameAndCloud();
 		}
 		retrieve_cloud_ = false;
 		retrieve_image_ = false;
+		retrieve_highlight_ = false;
+		next_frame_ = true;
 	}
 	std::cout << "Exiting Image Viewer Thread" << std::endl;
 	pthread_exit(NULL);
@@ -342,7 +437,7 @@ int main (int argc, char** argv){
   
   nh_private_.getParam("gc_size_", gc_size_);
   nh_private_.getParam("gc_threshold_", gc_threshold_);
-  nh_private_.getParam("debug", debug_);
+  nh_private_.getParam("debug_", debug_);
   if (debug_)
 	{
 		std::cout << "Debug Mode ON" << std::endl;
@@ -361,8 +456,11 @@ int main (int argc, char** argv){
 	dist_coeffs = cv::Mat::zeros(8, 1, CV_64F);
   loadCalibrationMatrix("kinect_sd");
 	focal_length = camera_matrix.at<double>(0,0);
+	
+	// DATA MANAGER CONFIGURATION
 	dm.setParameters(2*camera_matrix.at<double>(1,2), 2*camera_matrix.at<double>(0,2), package_path_);
 	dm.setCameraParameters(camera_matrix, dist_coeffs);
+	dm.setMinMarkers(1);
 	
   // DEBUGGING
   std::cout << "Package Path: " << package_path_ << std::endl;

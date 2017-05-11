@@ -100,7 +100,7 @@ int main (int argc, char** argv){
 	}
 	image_sub_.shutdown();
 	
-		begin =ros::Time::now().toSec();
+	begin =ros::Time::now().toSec();
 	current = ros::Time::now().toSec();
 
 	std::cout << std::endl << "Subscribing to Kinect Point Cloud Topic..." << std::endl;
@@ -118,30 +118,36 @@ int main (int argc, char** argv){
 	
 	if (retrieve_cloud_){
 		viewer.addPointCloud(cloud_a, "cloud_a");
+		pcl::PCDWriter writer;
+		writer.write<PointType> (save_path + "cloud.pcd", *cloud_a, false);
+		std::cout << "Point Cloud saved" << std::endl;
+	}else{
+		std::cout << "No point cloud obtained" << std::endl;
 	}
 	
   cv::Mat image_display_;
   bool retrieve_image_ = false;
-  retrieve_image_ = dm.getFrame(image_display_);
+  retrieve_image_ = dm.getRawFrame(image_display_);
 	
-	// SAVE TO FILE
-	std::cout <<std::endl << "Saving files to directory: " << save_path;
-	pcl::PCDWriter writer;
-	writer.write<PointType> (save_path + "cloud.pcd", *cloud_a, false);
-	std::cout << "Point Cloud saved" << std::endl;
-	cv::imwrite( save_path + "image.png", image_display_);
-	
-	// VIEW THE CORRESPONDING IMAGE
-	std::cout << std::endl << "Starting Image Viewer..." << std::endl;
-  if(retrieve_image_){
+	if (retrieve_image_){
+		cv::imwrite( save_path + "image.png", image_display_);
+		std::cout << "Image Saved" << std::endl;
+		
+		std::cout << std::endl << "Starting Image Viewer..." << std::endl;
 		cv::imshow("Image Viewer", image_display_);
 		if(cv::waitKey(0) >= 0){
 			std::cout << "Key out" << std::endl;
 		}
+
+	}else{
+		std::cout << "No Image obtained" << std::endl;
 	}
-	std::cout << std::endl << "Starting Point Cloud Viewer..." << std::endl;
-	while (!viewer.wasStopped ()){
-		viewer.spinOnce();
+	
+	if(retrieve_cloud_){
+		std::cout << std::endl << "Starting Point Cloud Viewer..." << std::endl;
+		while (!viewer.wasStopped ()){
+			viewer.spinOnce();
+		}
 	}
 	
 	ros::shutdown();	
