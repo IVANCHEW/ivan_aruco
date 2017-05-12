@@ -138,7 +138,7 @@ int main (int argc, char** argv){
   ros::init(argc, argv, "SLAM Reconstructor");
   ros::NodeHandle nh_;
   ros::NodeHandle nh_private_("~");
-  std::string image_path_, cloud_path_;
+  std::string image_path_, cloud_path_, save_path_;
 	ROS_INFO("Debug Mode ON");
 	pcl::console::setVerbosityLevel(pcl::console::L_INFO);
 	ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Debug);
@@ -160,6 +160,7 @@ int main (int argc, char** argv){
 	nh_private_.getParam("clus_size_min_", clus_size_min_);
 	nh_private_.getParam("clus_size_max_", clus_size_max_);
 	nh_private_.getParam("view_image_", view_image_);
+	nh_private_.getParam("save_path_", save_path_);
 	
   // CAMERA CALIBRATION
 	dm.setParameters(540, 960,package_path_);
@@ -344,6 +345,19 @@ int main (int argc, char** argv){
 	cloud_cluster->height = 1;
 	cloud_cluster->is_dense = true;
 	reconstructed_markers_cloud_ = cloud_cluster;
+	
+	// WRITE POINT CLOUD
+	reconstructed_cloud_->width = reconstructed_cloud_->points.size();
+	reconstructed_cloud_->height = 1;
+	cloud_cluster_center_->width = cloud_cluster_center_->points.size();
+	cloud_cluster_center_->height = 1;
+	pcl::PCDWriter writer;
+	if(reconstructed_cloud_->points.size()>0){
+		writer.write<PointType> (package_path_ + save_path_ + "/model.pcd", *reconstructed_cloud_, false);
+	}
+	if(cloud_cluster_center_->points.size()>0){
+		writer.write<PointType> (package_path_ + save_path_ + "/marker.pcd", *cloud_cluster_center_, false);
+	}
 	
 	// VIEWER PARAMETERS
 	ROS_INFO("Starting Point Cloud Viewer...");

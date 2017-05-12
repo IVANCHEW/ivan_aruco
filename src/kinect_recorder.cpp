@@ -116,7 +116,7 @@ void *recorder(void *threadid){
 			// STEP 1 : RETRIEVE AND RECORD RGB IMAGE
 			std::cout << "Begin writing image" << std::endl;
 			cv::Mat image;
-			dm.getFrame(image);
+			dm.getRawFrame(image);
 			
 			// VISUALISATION
 			cv::imshow("Image Viewer", image);
@@ -157,6 +157,7 @@ void *recorder(void *threadid){
 			// SLIGHT DELAY
 			boost::this_thread::sleep (boost::posix_time::microseconds (1000)); 
 			next_frame_ = true;
+			dm.clearFrameAndCloud();
 		}
 	}
 	active_threads_ = false;

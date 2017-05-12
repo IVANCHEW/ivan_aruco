@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <launch>
-  <arg name="debug"  							default="False" />
+  <arg name="debug"  							default="true" />
   <arg name="bag_name_"  					default="recorder_save.bag" />
   <arg name="folder_name_"  			default="/kinect_record_saves/" />
   <arg name="point_cloud_topic_"  default="/kinect2/sd/points" />

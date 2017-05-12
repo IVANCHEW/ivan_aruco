@@ -3,16 +3,16 @@
   <arg name="debug_"  					default="False" />  
   <arg name="blur_param_"			default="1" />
   <arg name="hsv_target_"			default="145" />
-  <arg name="hsv_target2_"		default="110" />
+  <arg name="hsv_target2_"		default="145" />
   <arg name="hsv_threshold_"	default="10" />
-  <arg name="contour_area_min_"	default="50" />
-  <arg name="contour_area_max_"	default="500" />
-  <arg name="contour_ratio_min_"	default="1" />
-  <arg name="contour_ratio_max_"	default="15" />
+  <arg name="contour_area_min_"	default="20" />
+  <arg name="contour_area_max_"	default="300" />
+  <arg name="contour_ratio_min_"	default="2" />
+  <arg name="contour_ratio_max_"	default="12" />
   <arg name="aruco_detection_" 		default="False" />
   <arg name="image_topic_" 				default="/kinect2/sd/image_color_rect" />
   <arg name="cloud_topic_"				default="/kinect2/sd/points" />
-	<arg name="desc_match_thresh_"	default="0.005" />
+	<arg name="desc_match_thresh_"	default="0.01" />
 	<arg name="gc_size_"						default="0.005"/>
 	<arg name="gc_threshold_"				default="3"/>
 	<arg name="downsampling_size_"	default="0.01"/>

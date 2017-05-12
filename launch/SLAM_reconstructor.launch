@@ -3,9 +3,10 @@
   <arg name="debug"  default="False" />
   <arg name="image_path_"  			default="/slam_data/thirdtake/rgb" />
   <arg name="cloud_path_"  			default="/slam_data/thirdtake/cloud" />
+  <arg name="save_path_"				default="/slam_data" />
   
   <arg name="blur_param_"			default="5" />
-  <arg name="hsv_target_"			default="135" />
+  <arg name="hsv_target_"			default="145" />
   <arg name="hsv_threshold_"	default="10" />
   <arg name="contour_area_min_"	default="50" />
   <arg name="contour_area_max_"	default="1000" />
@@ -34,6 +35,7 @@
 		<param name="clus_size_min_"     type="int"   			value="$(arg clus_size_min_)"/> 
 		<param name="clus_size_max_"     type="int"   			value="$(arg clus_size_max_)"/> 
 		<param name="view_image_"				type="bool"					value="$(arg view_image_)"/>
+		<param name="save_path_"				type="string"				value="$(arg save_path_)"/>
 	</node>
 	
 </launch>
